@@ -181,3 +181,203 @@ async activateView() {
 **Expected Outcome**: A fully functional sidebar for browsing and organizing conversations with folders, starring, and drag-and-drop functionality.
 
 **Estimated Effort**: 4-5 days
+
+## Microphase 3.6: Agent and Model Selection
+
+**Objective**: Create interfaces for selecting AI agents and models.
+
+**Tasks**:
+1. Implement AgentSelector component for displaying and selecting agents
+2. Create ModelSelector component for displaying and selecting AI models
+3. Add integration with AgentManager and ModelManager from Phase 2
+4. Implement state persistence for selections
+5. Create visual indicators for current selections
+6. Add ability to set default agent and model
+7. Implement integration with chat interface components
+
+**Key Files**:
+- `src/ui/AgentSelector.ts`
+- `src/ui/ModelSelector.ts`
+- Updates to `src/ui/ChatView.ts` for integration
+- CSS additions to `src/styles.css`
+
+**Implementation Notes**:
+- Use Obsidian's dropdown component patterns
+- Implement proper state management for selections
+- Integrate with AgentManager and ModelManager from Phase 2
+- Ensure selections are persisted across sessions
+- Add visual indicators for current selections
+
+**Expected Outcome**: UI components that allow users to select different AI agents and models, with proper integration with the underlying services.
+
+**Estimated Effort**: 2-3 days
+
+## Microphase 3.7: Tool Call Visualization
+
+**Objective**: Implement visualization for tool calls and their results within messages.
+
+**Tasks**:
+1. Create components for displaying tool calls in messages
+2. Implement collapsible sections for tool calls
+3. Add status indicators for tool operations (pending, running, done, error)
+4. Create formatted display for tool arguments and results
+5. Implement error handling and visualization
+6. Add streaming support for tool calls
+7. Create visual hierarchy for nested tool calls
+
+**Key Files**:
+- `src/ui/ToolCallView.ts`
+- `src/ui/ToolResultView.ts`
+- Updates to `src/ui/MessageList.ts` for integration
+- CSS additions to `src/styles.css`
+
+**Implementation Notes**:
+- Tool calls should be visually distinguishable within messages
+- Tool arguments and results should be formatted as code for readability
+- Error states should be clearly visible with helpful error messages
+- Status indicators should use color and iconography for quick recognition
+- Collapsible sections should allow users to focus on relevant information
+
+**Expected Outcome**: A user-friendly visualization of tool calls within messages, making it easy to understand the agent's actions and their results.
+
+**Estimated Effort**: 3-4 days
+
+## Microphase 3.7: Tool Call Visualization
+
+**Objective**: Implement visualization for tool calls and their results within messages.
+
+**Tasks**:
+1. Create tool call component for rendering tool calls in messages
+2. Implement collapsible sections for tool operation details
+3. Add status indicators for tool operations (pending, running, done, error)
+4. Create formatted display for tool arguments and results
+5. Implement error handling and visualization for failed tool operations
+6. Add visual feedback during tool execution
+7. Create integration with MCP tool call system from Phase 2
+
+**Key Files**:
+- `src/ui/ToolCallComponent.ts`
+- Updates to `src/ui/MessageList.ts`
+- CSS additions to `src/styles.css`
+
+**Implementation Notes**:
+- Use Obsidian's collapsible sections pattern
+- Leverage Obsidian's `MarkdownRenderer` for content display
+- Use Obsidian's CSS variables for status indicators
+- Implement proper error handling and display
+- Create clear visual distinctions between arguments and results
+
+**Expected Outcome**: A component for visualizing tool calls and results within messages, providing clear information about tool operations and their status.
+
+**Estimated Effort**: 3-4 days
+
+## Microphase 3.8: Settings Interface
+
+**Objective**: Create settings interface using Obsidian's PluginSettingTab.
+
+**Tasks**:
+1. Implement AgentToolSettingsTab extending Obsidian's PluginSettingTab
+2. Create settings sections for API keys, agents, models, and preferences
+3. Add tool toggle controls for each agent
+4. Implement settings for default agent and model
+5. Create conversation management settings
+6. Add UI customization options
+7. Implement secure API key storage
+
+**Key Files**:
+- `src/settings/AgentToolSettingsTab.ts`
+- `src/settings/APIKeySettings.ts`
+- `src/settings/ConversationSettings.ts`
+- `src/settings/UISettings.ts`
+- Updates to `src/main.ts` for registration
+
+**Implementation Notes**:
+- Extend `PluginSettingTab` class
+- Use `new Setting(containerEl)` for creating setting items
+- Add `.setName()`, `.setDesc()`, and appropriate controls
+- Use `.addToggle()`, `.addText()`, `.addDropdown()` methods
+- Register tab with `this.addSettingTab()` in main plugin
+- Implement secure API key storage using Obsidian's methods
+
+**Expected Outcome**: A comprehensive settings interface for configuring the plugin, including agent tools, default selections, and UI preferences.
+
+**Estimated Effort**: 3-4 days
+
+## Microphase 3.9: Responsive Design and Accessibility
+
+**Objective**: Ensure the interface works well across different pane sizes and meets accessibility standards.
+
+**Tasks**:
+1. Implement responsive breakpoints for different pane sizes
+2. Create collapsed/expanded states for UI elements based on available space
+3. Add appropriate ARIA attributes for screen reader support
+4. Ensure proper keyboard navigation through all interface elements
+5. Test with different Obsidian themes and color schemes
+6. Optimize for touch devices with appropriate touch targets
+7. Implement focus indicators and management
+
+**Key Files**:
+- Updates to existing UI component files
+- CSS additions to `src/styles.css`
+
+**Implementation Notes**:
+- Use CSS media queries for responsive breakpoints
+- Implement proper tabindex for keyboard navigation
+- Add ARIA attributes to all interactive elements
+- Ensure adequate color contrast using Obsidian's CSS variables
+- Test with screen readers and keyboard-only navigation
+
+**Expected Outcome**: A responsive and accessible chat interface that works well across different pane sizes, devices, and accessibility needs.
+
+**Estimated Effort**: 2-3 days
+
+## Microphase 3.10: Integration Testing and Refinement
+
+**Objective**: Integrate all UI components and ensure smooth interaction and performance.
+
+**Tasks**:
+1. Connect all UI components to Event System for comprehensive communication
+2. Test integration with MCP components from Phase 2
+3. Verify conversation persistence and state management
+4. Ensure smooth streaming experience with proper event handling
+5. Refine CSS for full consistency with Obsidian's design language
+6. Polish animations and transitions for a smooth user experience
+7. Fix edge cases and visual bugs across different themes and pane sizes
+8. Conduct end-to-end testing with real-world usage scenarios
+
+**Key Files**:
+- All UI component files
+- `src/styles.css`
+- Integration test files
+
+**Implementation Notes**:
+- Create comprehensive test cases for end-to-end testing
+- Verify all event communication between components
+- Test with real-world conversation examples
+- Ensure proper cleanup and memory management
+- Optimize performance for large conversations
+- Test across multiple Obsidian themes
+
+**Expected Outcome**: A fully integrated, polished chat interface that provides a seamless and reliable user experience.
+
+**Estimated Effort**: 3-4 days
+
+## Phase 3 Implementation Timeline
+
+| Microphase | Estimated Duration | Dependencies |
+|------------|-------------------|--------------| 
+| 3.1 Core View Registration | 3-4 days | Phase 1 & 2 components |
+| 3.2 Message Display | 3-4 days | 3.1 |
+| 3.3 Input Area | 2-3 days | 3.1 |
+| 3.4 Conversation Management | 3-4 days | 3.1, 3.2, 3.3 |
+| 3.5 Sidebar and Organization | 4-5 days | 3.4 |
+| 3.6 Agent and Model Selection | 2-3 days | 3.1, Phase 2 components |
+| 3.7 Tool Call Visualization | 3-4 days | 3.2, Phase 2 components |
+| 3.8 Settings Interface | 3-4 days | Phase 1 & 2 components |
+| 3.9 Responsive Design and Accessibility | 2-3 days | 3.1 - 3.8 |
+| 3.10 Integration Testing and Refinement | 3-4 days | 3.1 - 3.9 |
+| **Total** | **28-38 days** | |
+
+## Next Steps After Phase 3
+
+After completing all microphases of Phase 3, the project will have a fully functional chat interface with all necessary UI components. The next phase will focus on creating the External API for Chatsidian, allowing other plugins to interact with it programmatically.

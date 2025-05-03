@@ -1,0 +1,11 @@
+{
+  "id": "chatsidian",
+  "name": "Chatsidian",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "An Obsidian plugin for native chat with MCP integration",
+  "author": "Your Name",
+  "authorUrl": "https://github.com/yourusername",
+  "fundingUrl": "",
+  "isDesktopOnly": false
+}

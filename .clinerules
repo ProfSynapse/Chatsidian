@@ -1,0 +1,37 @@
+# Cline Rules for Chatsidian Project
+
+*This file captures project-specific patterns, user preferences, technical decisions, and other intelligence to improve Cline's effectiveness on the Chatsidian project.*
+
+## Core Principles & Reminders
+
+-   **Memory Bank is CRITICAL**: My memory resets. The `cline_docs/` directory is the *only* source of truth for project context between sessions. It MUST be kept up-to-date. Review ALL core files (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`) at the start of every session/task.
+-   **Follow Microphases**: Adhere to the implementation plan outlined in `3_Implementation/Phase1-Microphases.md` and subsequent phase documents.
+-   **Native Obsidian Focus**: Prioritize using Obsidian API patterns and native views for UI and core functionality, as per architectural decisions.
+-   **Modularity & SRP**: Apply Single Responsibility Principle and keep code modular, especially within core components and BCPs.
+-   **Documentation**: Maintain thorough documentation within code (TSDoc comments) and update the Memory Bank as needed.
+
+## User Preferences
+
+*(To be added as discovered)*
+
+## Project Patterns & Conventions
+
+*(To be added as discovered)*
+-   **Build System**: esbuild (`esbuild.config.mjs`)
+-   **Testing**: Jest
+-   **Language**: TypeScript (`tsconfig.json`)
+
+## Technical Decisions Log
+
+*(To be added as decisions are made or discovered)*
+
+## Tool Usage Patterns
+
+*(To be added as discovered)*
+-   Use `replace_in_file` for targeted edits.
+-   Use `write_to_file` for new files or complete overwrites.
+-   Use Powershell syntax for `execute_command` (e.g., `;` for chaining).
+
+## Known Challenges & Solutions
+
+*(To be added as discovered)*

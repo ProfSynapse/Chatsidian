@@ -36,6 +36,7 @@ Create `src/providers/ProviderAdapter.ts`:
  * Provider adapter interface for AI API connections.
  */
 
+import { Plugin } from 'obsidian';
 import { ProviderRequest, ProviderResponse, ProviderChunk } from '../models/Provider';
 
 /**
@@ -67,19 +68,25 @@ export interface ProviderAdapter {
    * Stream a response from the AI model, sending chunks as they arrive
    * @param request Provider request object
    * @param onChunk Callback function for processing each chunk
+   * @param plugin Plugin instance for lifecycle management
    * @returns Promise resolving to the complete response when streaming is done
    */
   streamResponse(
     request: ProviderRequest, 
-    onChunk: (chunk: ProviderChunk) => void
+    onChunk: (chunk: ProviderChunk) => void,
+    plugin: Plugin
   ): Promise<ProviderResponse>;
   
   /**
    * Create a streaming connection for raw SSE access
    * @param request Provider request object
+   * @param plugin Plugin instance for lifecycle management
    * @returns EventSource instance for handling streaming
    */
-  createStreamingConnection(request: ProviderRequest): EventSource;
+  createStreamingConnection(
+    request: ProviderRequest,
+    plugin: Plugin
+  ): EventSource;
   
   /**
    * Get a list of available models for this provider
@@ -98,7 +105,7 @@ Create `src/providers/BaseAdapter.ts`:
  * Base adapter implementation with common functionality.
  */
 
-import { requestUrl, RequestUrlResponse } from 'obsidian';
+import { Plugin, requestUrl, RequestUrlParam, RequestUrlResponse, Notice } from 'obsidian';
 import { ProviderAdapter } from './ProviderAdapter';
 import { ProviderRequest, ProviderResponse, ProviderChunk } from '../models/Provider';
 
@@ -174,28 +181,32 @@ export abstract class BaseAdapter implements ProviderAdapter {
    */
   protected async makeApiRequest(endpoint: string, body: any): Promise<RequestUrlResponse> {
     const url = `${this.getApiBaseUrl()}${endpoint}`;
-    console.debug(`Making request to ${url}`, JSON.stringify(body, null, 2));
     
     try {
-      const response = await requestUrl({
+      // Using Obsidian's RequestUrlParam interface for type safety
+      const params: RequestUrlParam = {
         url,
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify(body)
-      });
-      console.debug(`Response from ${url}:`, response);
+        body: JSON.stringify(body),
+        throw: false // Handle errors gracefully instead of throwing
+      };
+      
+      // Make request using Obsidian's requestUrl
+      const response = await requestUrl(params);
+      
+      // Check for error status
+      if (response.status >= 400) {
+        console.error(`Error response from ${url}: ${response.status}`);
+        if (response.json) {
+          console.error('Error response body:', response.json);
+        }
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+      
       return response;
     } catch (error: any) {
-      console.error(`Error making request to ${url}:`, error);
-      if (error.json) {
-        console.error('Error response body:', JSON.stringify(error.json, null, 2));
-      }
-      if (error.status) {
-        console.error(`Error status: ${error.status}`);
-      }
-      if (error.message) {
-        console.error(`Error message: ${error.message}`);
-      }
+      console.error(`Failed to make request to ${url}:`, error);
       throw error;
     }
   }
@@ -244,15 +255,20 @@ export abstract class BaseAdapter implements ProviderAdapter {
    */
   public abstract streamResponse(
     request: ProviderRequest,
-    onChunk: (chunk: ProviderChunk) => void
+    onChunk: (chunk: ProviderChunk) => void,
+    plugin: Plugin
   ): Promise<ProviderResponse>;
   
   /**
    * Create a streaming connection
    * @param request Provider request object
+   * @param plugin Plugin instance for lifecycle management
    * @returns EventSource instance for handling streaming
    */
-  public abstract createStreamingConnection(request: ProviderRequest): EventSource;
+  public abstract createStreamingConnection(
+    request: ProviderRequest,
+    plugin: Plugin
+  ): EventSource;
   
   /**
    * Get a list of available models for this provider
@@ -439,9 +455,13 @@ export class AnthropicAdapter extends BaseAdapter {
   /**
    * Create an EventSource for streaming from Anthropic
    * @param request Provider request object
+   * @param plugin Plugin instance for lifecycle management
    * @returns EventSource for streaming
    */
-  public createStreamingConnection(request: ProviderRequest): EventSource {
+  public createStreamingConnection(
+    request: ProviderRequest,
+    plugin: Plugin
+  ): EventSource {
     // Ensure the request has streaming enabled
     const streamingRequest = this.formatRequest({
       ...request,
@@ -458,6 +478,12 @@ export class AnthropicAdapter extends BaseAdapter {
       }
     );
     
+    // Register with plugin for proper lifecycle management
+    plugin.register(() => {
+      // Ensure streaming connections are closed when plugin unloads
+      source.close();
+    });
+    
     return source;
   }
   
@@ -465,16 +491,18 @@ export class AnthropicAdapter extends BaseAdapter {
    * Stream a response from Claude
    * @param request Provider request object
    * @param onChunk Callback function for processing each chunk
+   * @param plugin Plugin instance for lifecycle management
    * @returns Promise resolving to the complete response when streaming is done
    */
   public streamResponse(
     request: ProviderRequest,
-    onChunk: (chunk: ProviderChunk) => void
+    onChunk: (chunk: ProviderChunk) => void,
+    plugin: Plugin
   ): Promise<ProviderResponse> {
     return new Promise((resolve, reject) => {
       try {
-        // Create streaming connection
-        const source = this.createStreamingConnection(request);
+        // Create streaming connection with plugin for lifecycle management
+        const source = this.createStreamingConnection(request, plugin);
         
         // Initialize the full response object
         let fullResponse: ProviderResponse = {
@@ -577,12 +605,24 @@ export class AnthropicAdapter extends BaseAdapter {
         // Handle errors
         source.addEventListener('error', (error) => {
           console.error('Streaming error:', error);
+          
+          // Display notice to user
+          new Notice('Connection error: The streaming connection was interrupted.');
+          
+          // Close the source
           source.close();
+          
+          // Reject promise
           reject(error);
         });
         
       } catch (error) {
         console.error('Error setting up streaming:', error);
+        
+        // Display notice to user
+        new Notice(`Failed to set up streaming: ${error.message || 'Unknown error'}`);
+        
+        // Reject promise
         reject(error);
       }
     });
@@ -2087,7 +2127,7 @@ Create `src/providers/ValidationService.ts`:
  * Service for validating provider API keys.
  */
 
-import { debounce } from 'obsidian';
+import { debounce, Events, Plugin } from 'obsidian';
 import { ProviderFactory } from './ProviderFactory';
 import { SettingsManager } from '../core/SettingsManager';
 import { EventBus } from '../core/EventBus';
@@ -2098,15 +2138,26 @@ import { EventBus } from '../core/EventBus';
 export class ValidationService {
   private settings: SettingsManager;
   private eventBus: EventBus;
+  private saveSettings: () => Promise<void>;
+  private plugin: Plugin;
   
   /**
    * Create a new ValidationService instance
    * @param settings Settings manager
    * @param eventBus Event bus
+   * @param saveSettings Function to save settings
+   * @param plugin Plugin instance for lifecycle management
    */
-  constructor(settings: SettingsManager, eventBus: EventBus) {
+  constructor(
+    settings: SettingsManager,
+    eventBus: EventBus,
+    saveSettings: () => Promise<void>,
+    plugin: Plugin
+  ) {
     this.settings = settings;
     this.eventBus = eventBus;
+    this.saveSettings = saveSettings;
+    this.plugin = plugin;
   }
   
   /**
@@ -2126,10 +2177,10 @@ export class ValidationService {
   }
   
   /**
-   * Debounced validation to prevent excessive API calls
+   * Debounced validation to prevent excessive API calls using Obsidian's debounce utility
    */
   public validateApiKeyDebounced = debounce(
-    async (provider: string, apiKey: string) => {
+    async (provider: string, apiKey: string): Promise<boolean> => {
       try {
         // Emit validation start event
         this.eventBus.emit('provider:validating', { provider });
@@ -2159,7 +2210,8 @@ export class ValidationService {
         return false;
       }
     },
-    1000 // 1 second debounce
+    1000, // 1 second debounce
+    true   // Leading edge execution (optional, depending on preference)
   );
   
   /**
@@ -2168,12 +2220,12 @@ export class ValidationService {
    * @param isValid Whether the API key is valid
    */
   private async updateValidationStatus(provider: string, isValid: boolean): Promise<void> {
-    const validatedProviders = this.settings.getSettings().validatedProviders || {};
-    validatedProviders[provider] = isValid;
+    // Update settings object directly
+    this.settings.validatedProviders = this.settings.validatedProviders || {};
+    this.settings.validatedProviders[provider] = isValid;
     
-    await this.settings.updateSettings({
-      validatedProviders
-    });
+    // Use plugin's saveSettings method
+    await this.saveSettings();
   }
 }
 ```
@@ -2523,11 +2575,16 @@ Update `src/main.ts` to add provider adapters:
 // In plugin's main class
 
 /**
- * Initialize provider adapters
+ * Initialize provider adapters with Obsidian's lifecycle management
  */
 private async initializeProviders(): Promise<void> {
-  // Create validation service
-  this.validationService = new ValidationService(this.settings, this.eventBus);
+  // Create validation service with plugin instance for lifecycle management
+  this.validationService = new ValidationService(
+    this.settings, 
+    this.eventBus,
+    this.saveSettings.bind(this),
+    this
+  );
   
   // Get provider from settings
   const provider = this.settings.getProvider();
@@ -2539,6 +2596,7 @@ private async initializeProviders(): Promise<void> {
     console.log(`Provider ${provider} API key validation: ${isValid ? 'valid' : 'invalid'}`);
   } else {
     console.warn(`No API key set for provider ${provider}`);
+    new Notice(`No API key set for provider ${provider}. Please configure in settings.`);
   }
   
   // Create adapter
@@ -2547,9 +2605,18 @@ private async initializeProviders(): Promise<void> {
     console.log(`Created provider adapter for ${provider}`);
   } catch (error) {
     console.error(`Failed to create provider adapter for ${provider}:`, error);
+    new Notice(`Failed to initialize provider: ${error.message}`);
   }
   
-  // Listen for settings changes
+  // Listen for settings changes using Obsidian's registerEvent for proper lifecycle management
+  this.registerEvent(
+    this.app.workspace.on('layout-ready', () => {
+      // Perform actions when layout is ready - this ensures vault is accessible
+      console.log('Obsidian layout ready, provider adapters initialized');
+    })
+  );
+  
+  // Register for settings changes using Obsidian's registerEvent
   this.registerEvent(
     this.eventBus.on('settings:changed', async ({ changedKeys }) => {
       if (changedKeys.includes('provider') || changedKeys.includes('apiKey')) {
@@ -2602,3 +2669,39 @@ private async initializeProviders(): Promise<void> {
   - `HTTP-Referer`: Your application URL
   - `X-Title`: Your application name
 - Streaming Support: Yes (Server-Sent
+
+## Obsidian API Alignment Recommendations
+
+This implementation of Provider Adapters has been improved to better align with Obsidian's native APIs and patterns. Key improvements include:
+
+1. **Network Requests**
+   - Using Obsidian's `RequestUrlParam` interface for type safety
+   - Setting `throw: false` to handle errors gracefully
+   - Better error handling with proper error messages
+
+2. **Lifecycle Management**
+   - Adding `Plugin` parameter to streaming methods for proper cleanup
+   - Using `plugin.register(() => { source.close(); })` to ensure connections are closed on unload
+   - Registering for Obsidian's native events with `registerEvent`
+
+3. **User Feedback**
+   - Using Obsidian's `Notice` API for user notifications on error
+   - Providing clear error messages in the UI
+
+4. **Event Handling**
+   - Leveraging Obsidian's `Events` class for event management
+   - Cleaner integration with Obsidian's event system
+
+5. **Settings Management**
+   - Using Obsidian's settings management patterns
+   - Better integration with plugin's `saveSettings` method
+
+6. **Debouncing**
+   - Properly using Obsidian's `debounce` utility with correct parameters
+   - Adding support for leading edge execution
+
+These improvements make the Provider Adapters more robust and better integrated with Obsidian's ecosystem, ensuring proper resource management and consistent user experience.
+
+## Next Steps
+
+After completing this microphase, proceed to Microphase 1.7 (Plugin Lifecycle Management) to integrate these provider adapters into the complete plugin lifecycle.

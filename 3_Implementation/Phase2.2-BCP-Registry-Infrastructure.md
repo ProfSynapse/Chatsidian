@@ -57,10 +57,31 @@ export interface Tool {
    * JSON Schema defining tool parameters
    */
   schema: any;
+  
+  /**
+   * Optional icon for the tool (Obsidian icon ID)
+   */
+  icon?: string;
+  
+  /**
+   * Optional display options for the tool
+   */
+  display?: {
+    /**
+     * Whether to show the tool in suggestions
+     */
+    showInSuggestions?: boolean;
+    
+    /**
+     * Sort order for the tool in suggestions
+     */
+    sortOrder?: number;
+  };
 }
 
 /**
- * Interface for a Bounded Context Pack (BCP)
+ * Interface for a Bounded Context Pack (BCP) Component
+ * This extends Obsidian's Component model for proper lifecycle management
  */
 export interface BoundedContextPack {
   /**
@@ -87,6 +108,18 @@ export interface BoundedContextPack {
    * Optional version number
    */
   version?: string;
+  
+  /**
+   * Load handler - called when the BCP is loaded
+   * Allows the BCP to perform initialization tasks
+   */
+  onload?: () => Promise<void>;
+  
+  /**
+   * Unload handler - called when the BCP is unloaded
+   * Allows the BCP to perform cleanup tasks
+   */
+  onunload?: () => Promise<void>;
 }
 
 /**
@@ -99,6 +132,27 @@ export interface BCPMetadata {
   toolCount: number;
   loaded: boolean;
   dependencies?: string[];
+  icon?: string;
+  
+  /**
+   * Status information
+   */
+  status?: {
+    /**
+     * Whether the BCP is a system BCP that cannot be unloaded
+     */
+    isSystem?: boolean;
+    
+    /**
+     * Last loaded timestamp
+     */
+    loadedAt?: number;
+    
+    /**
+     * Any active error
+     */
+    error?: string;
+  };
 }
 ```
 
@@ -107,20 +161,20 @@ export interface BCPMetadata {
 Next, implement the BCPRegistry that will manage BCPs:
 
 ```typescript
-import { App } from 'obsidian';
-import { EventBus } from '../core/EventBus';
+import { App, Component, Notice, debounce, Events } from 'obsidian';
 import { SettingsManager } from '../core/SettingsManager';
 import { VaultFacade } from '../core/VaultFacade';
 import { BoundedContextPack, Tool, BCPMetadata } from './interfaces';
 
 /**
  * BCPRegistry manages loading, unloading, and discovery of BCP modules
+ * Extends Component for proper lifecycle management
  */
-export class BCPRegistry {
+export class BCPRegistry extends Component {
   private app: App;
-  private eventBus: EventBus;
   private settings: SettingsManager;
   private vaultFacade: VaultFacade;
+  private events: Events;
   
   // Collection of available packs (loaded or not)
   private packs: Map<string, BoundedContextPack> = new Map();
@@ -130,31 +184,49 @@ export class BCPRegistry {
   
   // Track pack dependencies
   private dependencies: Map<string, Set<string>> = new Map();
+
+  // Track pack components for proper lifecycle management
+  private packComponents: Map<string, Component> = new Map();
   
   /**
    * Create a new BCPRegistry
    * @param app - Obsidian App instance
-   * @param eventBus - EventBus for communication
    * @param settings - Settings manager
    * @param vaultFacade - VaultFacade for vault operations
    */
   constructor(
     app: App, 
-    eventBus: EventBus, 
     settings: SettingsManager,
     vaultFacade: VaultFacade
   ) {
+    super();
     this.app = app;
-    this.eventBus = eventBus;
     this.settings = settings;
     this.vaultFacade = vaultFacade;
+    this.events = new Events();
+    
+    // Register for settings changes
+    this.registerEvent(
+      this.settings.on('settings:changed', this.handleSettingsChanged.bind(this))
+    );
   }
   
   /**
-   * Initialize the BCP registry
-   * @returns Promise resolving when initialization is complete
+   * Handle settings changed event
+   * @param settings - New settings
    */
-  public async initialize(): Promise<void> {
+  private handleSettingsChanged = debounce((settings: any) => {
+    // Update auto-loaded BCPs if the setting has changed
+    this.updateAutoLoadedBCPs();
+  }, 500);
+  
+  /**
+   * Called when Component is loaded
+   * Initialize the BCP registry
+   */
+  async onload(): Promise<void> {
+    console.log('Initializing BCP Registry');
+    
     try {
       // Discover available packs
       await this.discoverPacks();
@@ -162,18 +234,67 @@ export class BCPRegistry {
       // Register system BCP
       this.registerSystemBCP();
       
-      // Auto-load configured packs
-      await this.loadAutoLoadPacks();
-      
-      // Emit initialization complete event
-      this.eventBus.emit('bcpRegistry:initialized', {
-        packCount: this.packs.size,
-        loadedCount: this.loadedPacks.size
+      // Wait for workspace to be ready before loading BCPs
+      this.app.workspace.onLayoutReady(async () => {
+        // Auto-load configured packs
+        await this.loadAutoLoadPacks();
+        
+        // Trigger initialization complete event
+        this.events.trigger('bcpRegistry:initialized', {
+          packCount: this.packs.size,
+          loadedCount: this.loadedPacks.size
+        });
+        
+        new Notice('BCP Registry initialized with ' + this.loadedPacks.size + ' packs');
       });
     } catch (error) {
       console.error('Error initializing BCP registry:', error);
-      throw error;
+      new Notice('Error initializing BCP registry: ' + error.message);
     }
+  }
+  
+  /**
+   * Called when Component is unloaded
+   * Clean up all loaded BCPs
+   */
+  async onunload(): Promise<void> {
+    console.log('Unloading BCP Registry');
+    
+    // Unload all BCPs except System
+    const domains = Array.from(this.loadedPacks);
+    
+    for (const domain of domains) {
+      // Skip System BCP
+      if (domain === 'System') continue;
+      
+      try {
+        await this.unloadPack(domain);
+      } catch (error) {
+        console.error(`Error unloading pack ${domain}:`, error);
+      }
+    }
+    
+    // Clear collections
+    this.packs.clear();
+    this.loadedPacks.clear();
+    this.dependencies.clear();
+    this.packComponents.clear();
+  }
+  
+  /**
+   * Register for events
+   * @param callback - Event callback
+   */
+  on(name: string, callback: (data: any) => void): void {
+    this.events.on(name, callback);
+  }
+  
+  /**
+   * Unregister from events
+   * @param callback - Event callback
+   */
+  off(name: string, callback: (data: any) => void): void {
+    this.events.off(name, callback);
   }
   
   /**
@@ -214,13 +335,46 @@ export class BCPRegistry {
         }
       }
       
-      // Emit discovery complete event
-      this.eventBus.emit('bcpRegistry:discoveryComplete', {
+      // Trigger discovery complete event
+      this.events.trigger('bcpRegistry:discoveryComplete', {
         packCount: this.packs.size
       });
     } catch (error) {
       console.error('Error discovering packs:', error);
       throw error;
+    }
+  }
+  
+  /**
+   * Update auto-loaded BCPs based on current settings
+   */
+  private async updateAutoLoadedBCPs(): Promise<void> {
+    const settings = this.settings.getSettings();
+    const autoLoadBCPs = settings.autoLoadBCPs || [];
+    
+    // Unload BCPs that are no longer in auto-load list
+    for (const domain of this.loadedPacks) {
+      // Skip System BCP
+      if (domain === 'System') continue;
+      
+      if (!autoLoadBCPs.includes(domain)) {
+        try {
+          await this.unloadPack(domain);
+        } catch (error) {
+          console.error(`Error unloading pack ${domain}:`, error);
+        }
+      }
+    }
+    
+    // Load new auto-load BCPs
+    for (const domain of autoLoadBCPs) {
+      try {
+        if (!this.loadedPacks.has(domain)) {
+          await this.loadPack(domain);
+        }
+      } catch (error) {
+        console.error(`Error auto-loading pack ${domain}:`, error);
+      }
     }
   }
   
@@ -231,6 +385,15 @@ export class BCPRegistry {
    */
   private mockPackImport(domain: string): BoundedContextPack {
     // This is a placeholder for actual dynamic imports
+    const icons = {
+      'NoteManager': 'file-text',
+      'FolderManager': 'folder',
+      'VaultLibrarian': 'search',
+      'PaletteCommander': 'command'
+    };
+
+    const icon = icons[domain] || 'package';
+    
     return {
       domain,
       description: `${domain} operations for Obsidian`,
@@ -238,6 +401,7 @@ export class BCPRegistry {
         {
           name: 'exampleTool',
           description: 'Example tool',
+          icon: icon,
           handler: async (params: any) => {
             return { success: true, params };
           },
@@ -250,7 +414,14 @@ export class BCPRegistry {
             }
           }
         }
-      ]
+      ],
+      // Add lifecycle methods
+      onload: async () => {
+        console.log(`${domain} loaded`);
+      },
+      onunload: async () => {
+        console.log(`${domain} unloaded`);
+      }
     };
   }
   
@@ -276,11 +447,21 @@ export class BCPRegistry {
       this.dependencies.set(pack.domain, new Set(pack.dependencies));
     }
     
-    // Emit event
-    this.eventBus.emit('bcpRegistry:packRegistered', {
+    // Create a Component for the pack for lifecycle management
+    const packComponent = new Component();
+    this.packComponents.set(pack.domain, packComponent);
+    
+    // Add packComponent as a child of this component
+    this.addChild(packComponent);
+    
+    // Trigger event
+    this.events.trigger('bcpRegistry:packRegistered', {
       domain: pack.domain,
       toolCount: pack.tools.length
     });
+    
+    // User feedback
+    new Notice(`BCP ${pack.domain} registered`);
   }
   
   /**
@@ -294,12 +475,14 @@ export class BCPRegistry {
         {
           name: 'listBCPs',
           description: 'List all available BCPs',
+          icon: 'list',
           handler: async () => this.listPacksDetailed(),
           schema: {}
         },
         {
           name: 'loadBCP',
           description: 'Load a BCP by domain',
+          icon: 'download',
           handler: async (params: { domain: string }) => this.loadPack(params.domain),
           schema: {
             type: 'object',
@@ -315,6 +498,7 @@ export class BCPRegistry {
         {
           name: 'unloadBCP',
           description: 'Unload a BCP by domain',
+          icon: 'x',
           handler: async (params: { domain: string }) => this.unloadPack(params.domain),
           schema: {
             type: 'object',
@@ -327,7 +511,14 @@ export class BCPRegistry {
             }
           }
         }
-      ]
+      ],
+      // Add lifecycle methods for System BCP
+      onload: async () => {
+        console.log('System BCP loaded');
+      },
+      onunload: async () => {
+        console.log('System BCP unloaded');
+      }
     };
     
     // Register system BCP
@@ -336,8 +527,8 @@ export class BCPRegistry {
     // System BCP is always loaded
     this.loadedPacks.add('System');
     
-    // Emit event
-    this.eventBus.emit('bcpRegistry:systemBCPRegistered');
+    // Trigger event
+    this.events.trigger('bcpRegistry:systemBCPRegistered');
   }
   
   /**
@@ -355,11 +546,12 @@ export class BCPRegistry {
           await this.loadPack(domain);
         } catch (error) {
           console.error(`Error auto-loading pack ${domain}:`, error);
+          new Notice(`Error loading BCP ${domain}: ${error.message}`);
         }
       }
       
-      // Emit event
-      this.eventBus.emit('bcpRegistry:autoLoadComplete', {
+      // Trigger event
+      this.events.trigger('bcpRegistry:autoLoadComplete', {
         loadedCount: this.loadedPacks.size
       });
     } catch (error) {
@@ -412,22 +604,50 @@ export class BCPRegistry {
         }
       }
       
-      // Mark as loaded
-      this.loadedPacks.add(domain);
-      
       // Create context for tools
       const context = {
         vaultFacade: this.vaultFacade,
-        eventBus: this.eventBus,
-        settings: this.settings
+        settings: this.settings,
+        app: this.app
       };
       
-      // Emit tools registered event
-      this.eventBus.emit('bcpRegistry:packLoaded', {
+      // Call pack's onload lifecycle method if it exists
+      if (pack.onload) {
+        await pack.onload();
+      }
+      
+      // Register DOM event handlers or other event listeners for the pack
+      const packComponent = this.packComponents.get(domain);
+      if (packComponent) {
+        // Activate the pack component to initialize it
+        packComponent.load();
+        
+        // Register event handlers from the pack
+        for (const tool of pack.tools) {
+          // For tool-specific setup, we might register handlers, etc.
+          if (tool.handler) {
+            // Register the tool handler with the pack component
+            // so it gets cleaned up properly when unloaded
+            packComponent.register(() => {
+              // Cleanup logic when component is unloaded
+              console.log(`Tool ${tool.name} handler unregistered`);
+            });
+          }
+        }
+      }
+      
+      // Mark as loaded
+      this.loadedPacks.add(domain);
+      
+      // Trigger tools registered event
+      this.events.trigger('bcpRegistry:packLoaded', {
         domain,
         tools: pack.tools,
         context
       });
+      
+      // User feedback
+      new Notice(`BCP ${domain} loaded successfully`);
       
       return { 
         loaded: domain, 
@@ -436,6 +656,7 @@ export class BCPRegistry {
       };
     } catch (error) {
       console.error(`Error loading pack ${domain}:`, error);
+      new Notice(`Error loading BCP ${domain}: ${error.message}`);
       throw error;
     }
   }
@@ -486,13 +707,30 @@ export class BCPRegistry {
         unloadedDependents.push(dependent);
       }
       
+      // Get pack
+      const pack = this.packs.get(domain);
+      
+      // Call pack's onunload lifecycle method if it exists
+      if (pack.onunload) {
+        await pack.onunload();
+      }
+      
+      // Unload the pack component to clean up event handlers
+      const packComponent = this.packComponents.get(domain);
+      if (packComponent) {
+        packComponent.unload();
+      }
+      
       // Mark as unloaded
       this.loadedPacks.delete(domain);
       
-      // Emit tools unregistered event
-      this.eventBus.emit('bcpRegistry:packUnloaded', {
+      // Trigger tools unregistered event
+      this.events.trigger('bcpRegistry:packUnloaded', {
         domain
       });
+      
+      // User feedback
+      new Notice(`BCP ${domain} unloaded`);
       
       return { 
         unloaded: domain, 
@@ -501,6 +739,7 @@ export class BCPRegistry {
       };
     } catch (error) {
       console.error(`Error unloading pack ${domain}:`, error);
+      new Notice(`Error unloading BCP ${domain}: ${error.message}`);
       throw error;
     }
   }
@@ -527,14 +766,24 @@ export class BCPRegistry {
    * @returns Array of pack metadata
    */
   public listPacks(): BCPMetadata[] {
-    return Array.from(this.packs.entries()).map(([domain, pack]) => ({
-      domain,
-      description: pack.description,
-      version: pack.version,
-      toolCount: pack.tools.length,
-      loaded: this.loadedPacks.has(domain),
-      dependencies: pack.dependencies
-    }));
+    return Array.from(this.packs.entries()).map(([domain, pack]) => {
+      // Find first tool with an icon to use as pack icon
+      const icon = pack.tools.find(tool => tool.icon)?.icon;
+      
+      return {
+        domain,
+        description: pack.description,
+        version: pack.version,
+        toolCount: pack.tools.length,
+        loaded: this.loadedPacks.has(domain),
+        dependencies: pack.dependencies,
+        icon: icon,
+        status: {
+          isSystem: domain === 'System',
+          loadedAt: this.loadedPacks.has(domain) ? Date.now() : undefined
+        }
+      };
+    });
   }
   
   /**
@@ -602,6 +851,57 @@ export class BCPRegistry {
     
     return tools;
   }
+  
+  /**
+   * Get a pack component
+   * @param domain - Domain name
+   * @returns Component or undefined
+   */
+  public getPackComponent(domain: string): Component | undefined {
+    return this.packComponents.get(domain);
+  }
+  
+  /**
+   * Check if a tool exists
+   * @param toolId - Tool ID (domain.name)
+   * @returns Whether tool exists
+   */
+  public hasToolById(toolId: string): boolean {
+    const [domain, name] = toolId.split('.');
+    
+    if (!domain || !name) {
+      return false;
+    }
+    
+    const pack = this.packs.get(domain);
+    
+    if (!pack) {
+      return false;
+    }
+    
+    return pack.tools.some(tool => tool.name === name);
+  }
+  
+  /**
+   * Get a tool by ID
+   * @param toolId - Tool ID (domain.name)
+   * @returns Tool or undefined
+   */
+  public getToolById(toolId: string): Tool | undefined {
+    const [domain, name] = toolId.split('.');
+    
+    if (!domain || !name) {
+      return undefined;
+    }
+    
+    const pack = this.packs.get(domain);
+    
+    if (!pack) {
+      return undefined;
+    }
+    
+    return pack.tools.find(tool => tool.name === name);
+  }
 }
 ```
 
@@ -625,41 +925,93 @@ export async function loadBCPModule(
     // const module = await import(`../bcps/${domain}`);
     // return module.default(context);
     
-    // For development, we can use a switch
+    // Add timestamp and request ID for debugging
+    const requestId = Math.random().toString(36).substring(2, 15);
+    console.log(`[${requestId}] Loading BCP module ${domain} at ${new Date().toISOString()}`);
+    
+    // For development, we can use a switch with proper error handling
     let pack: BoundedContextPack;
     
-    switch (domain) {
-      case 'NoteManager':
-        // Import NoteManager module
-        const NoteManagerModule = await import('../bcps/NoteManager');
-        pack = NoteManagerModule.default(context);
-        break;
-        
-      case 'FolderManager':
-        // Import FolderManager module
-        const FolderManagerModule = await import('../bcps/FolderManager');
-        pack = FolderManagerModule.default(context);
-        break;
-        
-      case 'VaultLibrarian':
-        // Import VaultLibrarian module
-        const VaultLibrarianModule = await import('../bcps/VaultLibrarian');
-        pack = VaultLibrarianModule.default(context);
-        break;
-        
-      case 'PaletteCommander':
-        // Import PaletteCommander module
-        const PaletteCommanderModule = await import('../bcps/PaletteCommander');
-        pack = PaletteCommanderModule.default(context);
-        break;
-        
-      default:
-        throw new Error(`Unknown BCP domain: ${domain}`);
+    try {
+      switch (domain) {
+        case 'NoteManager':
+          // Import NoteManager module
+          const NoteManagerModule = await import('../bcps/NoteManager');
+          pack = NoteManagerModule.default(context);
+          break;
+          
+        case 'FolderManager':
+          // Import FolderManager module
+          const FolderManagerModule = await import('../bcps/FolderManager');
+          pack = FolderManagerModule.default(context);
+          break;
+          
+        case 'VaultLibrarian':
+          // Import VaultLibrarian module
+          const VaultLibrarianModule = await import('../bcps/VaultLibrarian');
+          pack = VaultLibrarianModule.default(context);
+          break;
+          
+        case 'PaletteCommander':
+          // Import PaletteCommander module
+          const PaletteCommanderModule = await import('../bcps/PaletteCommander');
+          pack = PaletteCommanderModule.default(context);
+          break;
+          
+        default:
+          throw new Error(`Unknown BCP domain: ${domain}`);
+      }
+      
+      console.log(`[${requestId}] Successfully loaded BCP module ${domain}`);
+      
+      // Ensure pack has required properties
+      if (!pack.domain) {
+        pack.domain = domain;
+      }
+      
+      if (!pack.tools) {
+        pack.tools = [];
+      }
+      
+      // Add default lifecycle methods if not provided
+      if (!pack.onload) {
+        pack.onload = async () => {
+          console.log(`${domain} loaded (default handler)`);
+        };
+      }
+      
+      if (!pack.onunload) {
+        pack.onunload = async () => {
+          console.log(`${domain} unloaded (default handler)`);
+        };
+      }
+      
+      return pack;
+    } catch (error) {
+      console.error(`[${requestId}] Error in import for BCP module ${domain}:`, error);
+      
+      // Create a fallback error-displaying BCP
+      return {
+        domain,
+        description: `Error loading ${domain}: ${error.message}`,
+        tools: [{
+          name: 'error',
+          description: `Error loading ${domain}`,
+          icon: 'alert-triangle',
+          handler: async () => ({ error: error.message }),
+          schema: {}
+        }],
+        onload: async () => {
+          console.error(`Error BCP for ${domain} loaded`);
+          new Notice(`Error loading BCP ${domain}: ${error.message}`, 10000);
+        },
+        onunload: async () => {
+          console.log(`Error BCP for ${domain} unloaded`);
+        }
+      };
     }
-    
-    return pack;
   } catch (error) {
-    console.error(`Error loading BCP module ${domain}:`, error);
+    console.error(`Error in loadBCPModule for ${domain}:`, error);
     throw error;
   }
 }
@@ -670,14 +1022,44 @@ export async function loadBCPModule(
 Modify the main plugin class to set up the BCP registry:
 
 ```typescript
-import { Plugin } from 'obsidian';
-import { EventBus } from './core/EventBus';
+import { App, Component, Notice, Plugin, debounce } from 'obsidian';
 import { SettingsManager } from './core/SettingsManager';
 import { VaultFacade } from './core/VaultFacade';
 import { BCPRegistry } from './mcp/BCPRegistry';
 
+/**
+ * Context provided to BCPs
+ */
+export interface BCPContext {
+  /**
+   * Obsidian App instance
+   */
+  app: App;
+  
+  /**
+   * Vault facade for vault operations
+   */
+  vaultFacade: VaultFacade;
+  
+  /**
+   * Settings manager
+   */
+  settings: SettingsManager;
+  
+  /**
+   * Parent component for lifecycle management
+   */
+  parent?: Component;
+}
+
+/**
+ * Factory function for creating BCPs
+ * @param context - Context provided to the BCP
+ * @returns Bounded Context Pack
+ */
+export type BCPFactory = (context: BCPContext) => BoundedContextPack;
+
 export default class ChatsidianPlugin extends Plugin {
-  public eventBus: EventBus;
   public settings: SettingsManager;
   public vaultFacade: VaultFacade;
   public bcpRegistry: BCPRegistry;
@@ -685,49 +1067,149 @@ export default class ChatsidianPlugin extends Plugin {
   async onload() {
     console.log('Loading Chatsidian plugin');
     
-    // Initialize event bus
-    this.eventBus = new EventBus();
-    
-    // Initialize settings
-    this.settings = new SettingsManager(this.app, this.eventBus);
+    // Initialize settings - using Component pattern
+    this.settings = new SettingsManager(this.app);
+    this.addChild(this.settings);
     await this.settings.load();
     
-    // Initialize vault facade
-    this.vaultFacade = new VaultFacade(this.app, this.eventBus);
+    // Initialize vault facade - using Component pattern
+    this.vaultFacade = new VaultFacade(this.app);
+    this.addChild(this.vaultFacade);
     
-    // Initialize BCP registry
+    // Initialize BCP registry - using Component pattern
     this.bcpRegistry = new BCPRegistry(
       this.app, 
-      this.eventBus, 
       this.settings,
       this.vaultFacade
     );
-    await this.bcpRegistry.initialize();
+    this.addChild(this.bcpRegistry);
     
-    // Register event handlers
-    this.registerEvents();
+    // Register commands
+    this.addCommands();
     
-    console.log('Chatsidian plugin loaded');
+    // Initialize ribbon icon for BCP management
+    this.addRibbonBCPIcon();
+    
+    // Show startup notice
+    new Notice('Chatsidian plugin loaded', 2000);
   }
   
-  private registerEvents() {
-    // Log BCP events in debug mode
-    if (this.settings.getSettings().debugMode) {
-      this.eventBus.on('bcpRegistry:packLoaded', data => {
-        console.log(`Pack loaded: ${data.domain} with ${data.tools.length} tools`);
-      });
-      
-      this.eventBus.on('bcpRegistry:packUnloaded', data => {
-        console.log(`Pack unloaded: ${data.domain}`);
-      });
-      
-      // Register other event handlers...
-    }
+  /**
+   * Add commands to the command palette
+   */
+  private addCommands() {
+    // Add command to list BCPs
+    this.addCommand({
+      id: 'list-bcps',
+      name: 'List BCPs',
+      callback: () => {
+        const bcps = this.bcpRegistry.listPacks();
+        new Notice(`Loaded BCPs: ${this.bcpRegistry.getLoadedPacks().join(', ')}`, 5000);
+      }
+    });
+    
+    // Add command to reload BCPs
+    this.addCommand({
+      id: 'reload-bcps',
+      name: 'Reload BCPs',
+      callback: async () => {
+        // Unload all BCPs
+        const loadedPacks = this.bcpRegistry.getLoadedPacks();
+        for (const domain of loadedPacks) {
+          if (domain !== 'System') {
+            await this.bcpRegistry.unloadPack(domain);
+          }
+        }
+        
+        // Reload auto-load BCPs
+        const settings = this.settings.getSettings();
+        const autoLoadBCPs = settings.autoLoadBCPs || [];
+        for (const domain of autoLoadBCPs) {
+          await this.bcpRegistry.loadPack(domain);
+        }
+        
+        new Notice('BCPs reloaded', 2000);
+      }
+    });
   }
   
+  /**
+   * Add ribbon icon for BCP management
+   */
+  private addRibbonBCPIcon() {
+    const ribbonIcon = this.addRibbonIcon(
+      'package',
+      'Chatsidian BCPs',
+      (evt) => {
+        const bcps = this.bcpRegistry.listPacks();
+        const loadedCount = this.bcpRegistry.getLoadedPacks().length;
+        
+        // Show notification with BCP stats
+        new Notice(`BCPs: ${bcps.length} total, ${loadedCount} loaded`, 3000);
+      }
+    );
+    
+    // Add classes for styling
+    ribbonIcon.addClass('chatsidian-bcp-icon');
+  }
+  
+  /**
+   * Called when plugin is unloaded
+   * Component cleanup is handled automatically
+   */
   onunload() {
-    // Clean up resources
-    this.eventBus.clear();
+    console.log('Unloading Chatsidian plugin');
+    
+    // Plugin.onunload will automatically unload all child components
+    // including vaultFacade and bcpRegistry
+    
+    new Notice('Chatsidian plugin unloaded', 2000);
+  }
+  
+  /**
+   * Create an example BCP
+   * @returns Bounded Context Pack
+   */
+  public createExampleBCP(): BoundedContextPack {
+    const context: BCPContext = {
+      app: this.app,
+      vaultFacade: this.vaultFacade,
+      settings: this.settings,
+      parent: this.bcpRegistry
+    };
+    
+    return {
+      domain: 'Example',
+      description: 'Example BCP',
+      tools: [
+        {
+          name: 'hello',
+          description: 'Say hello',
+          icon: 'message-circle',
+          handler: async (params: { name: string }) => {
+            return { message: `Hello, ${params.name}!` };
+          },
+          schema: {
+            type: 'object',
+            required: ['name'],
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Name to greet'
+              }
+            }
+          }
+        }
+      ],
+      onload: async () => {
+        console.log('Example BCP loaded');
+        // Any setup code here
+      },
+      onunload: async () => {
+        console.log('Example BCP unloaded');
+        // Any cleanup code here
+      }
+    };
   }
 }
 ```
@@ -807,11 +1289,41 @@ export function createExampleBCP(context: BCPContext): BoundedContextPack {
 
 ## Testing Strategy
 
-- Unit tests for the BCP registry
-- Test loading and unloading of packs
+- Unit tests for the BCPRegistry component lifecycle
+  - Test proper registration of event handlers
+  - Test cleanup during component unloading
+  - Test parent-child component relationships
+- Integration tests with Obsidian's Component model
+  - Verify Component lifecycle hooks are called correctly
+  - Test proper event propagation through the component hierarchy
+  - Test that child components are loaded/unloaded appropriately
+- Test BCP loading and unloading with complete lifecycle handling
+  - Verify onload and onunload methods are called
+  - Test proper cleanup of resources during unload
+  - Test that pack components are properly initialized and cleaned up
 - Test dependency management
-- Test tool registration
+  - Test automatic loading of dependencies
+  - Test prevention of circular dependencies
+  - Test handling of missing dependencies
+- Test tool registration and execution
+  - Verify tools are properly registered with domain prefixes
+  - Test tool handler execution with appropriate context
+  - Test error handling during tool execution
+- Performance tests for BCP operations
+  - Measure initialization time
+  - Test performance with many BCPs and tools
+  - Verify startup performance in real Obsidian environment
 
 ## Next Steps
 
-Phase 2.3 will focus on implementing the Tool Manager, which will work in conjunction with the BCP registry to execute tools and handle parameter validation.
+Phase 2.3 will focus on implementing the Tool Manager, which will work in conjunction with the BCP Registry. The Tool Manager will be responsible for executing tools and handling parameter validation, following the Obsidian Component pattern we've established.
+
+The Tool Manager will:
+1. Register as a child component of the main plugin
+2. Subscribe to BCP registry events for tool registration/unregistration
+3. Provide a consistent interface for tool execution
+4. Implement proper error handling and user feedback via Notices
+5. Support parameter validation based on JSON Schema
+6. Handle tool execution context with proper lifecycle management
+
+With both the VaultFacade and BCPRegistry now properly aligned with Obsidian's Component model, the Tool Manager will complete our core infrastructure for tool execution and BCP management, providing a robust foundation for the rest of the plugin. registry to execute tools and handle parameter validation.

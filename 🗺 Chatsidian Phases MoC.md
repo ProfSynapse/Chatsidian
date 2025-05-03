@@ -222,3 +222,78 @@ Legend:
 - 🚧 In Progress
 - 🔄 Planning
 - 📅 Scheduled
+
+## Phase 3: Chat Interface
+
+Phase 3 implements the user-facing components of the Chatsidian plugin, creating a native Obsidian-style chat interface.
+
+### Overview
+
+- **Purpose**: Create the chat interface and settings UI
+- **Status**: Planning
+- **Timeline**: 4-5 weeks
+- **Primary Documentation**: [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3-Microphases]]
+
+### Microphases
+
+1. **Core View Registration (3.1)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.1-View-Registration]]
+   - *Implements the foundational UI layout and view structure*
+   - *Key Files*: ChatView.ts, styles.css, main.ts
+
+2. **Message Display (3.2)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.2-Message-Display]]
+   - *Implements message display with Markdown rendering*
+   - *Key Files*: MessageList.ts, CSS styles for messages
+
+3. **Input Area (3.3)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.3-Input-Area]]
+   - *Creates responsive input area with auto-growing textarea*
+   - *Key Files*: InputArea.ts, CSS styles for input
+
+4. **Conversation Management (3.4)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.4-Conversation-Management]]
+   - *Implements UI for managing conversations*
+   - *Key Files*: ConversationSelector.ts, modals for management
+
+5. **Sidebar and Organization (3.5)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.5-Sidebar-Organization]]
+   - *Builds sidebar with conversation organization*
+   - *Key Files*: ConversationSidebar.ts, folder management components
+
+6. **Agent and Model Selection (3.6)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.6-Agent-Model-Selection]]
+   - *Creates interfaces for selecting AI agents and models*
+   - *Key Files*: AgentSelector.ts, ModelSelector.ts
+
+7. **Tool Call Visualization (3.7)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.7-Tool-Call-Visualization]]
+   - *Implements visualization for tool calls and results*
+   - *Key Files*: ToolCallComponent.ts, tool call styling
+
+8. **Settings Interface (3.8)**
+   - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase3.8-Settings-Interface]]
+   - *Creates settings tab using Obsidian's PluginSettingTab*
+   - *Key Files*: ChatsidianSettingsTab.ts, settings components
+
+9. **Responsive Design and Accessibility (3.9)**
+   - *Ensures interface works well across different pane sizes*
+   - *Adds accessibility features for keyboard and screen readers*
+
+10. **Integration Testing and Refinement (3.10)**
+    - *Integrates all UI components and ensures smooth interaction*
+    - *Tests end-to-end functionality with real-world scenarios*
+
+### Core Components
+
+- **ChatView**: [[💻 Coding/Projects/Chatsidian/1_Architecture/Components/ChatInterface]]
+  - Main view component for the chat interface
+  - Manages layout and component interaction
+
+- **MessageList**: [[💻 Coding/Projects/Chatsidian/1_Architecture/Components/MessageList]]
+  - Handles rendering of messages with Markdown support
+  - Displays tool calls and their results
+
+- **ConversationSidebar**: [[💻 Coding/Projects/Chatsidian/1_Architecture/Components/ConversationSidebar]]
+  - Provides browsing and organization of conversations
+  - Implements folder management and drag-and-drop

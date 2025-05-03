@@ -913,3 +913,197 @@ describe('TypedEventBus', () => {
 
 After completing this microphase, proceed to:
 - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase1.4-Settings-Management.md]] - Implementing settings management with secure API key storage
+
+## Recommendations for Obsidian Integration
+
+### Leveraging Obsidian's Events Class
+
+Obsidian provides a built-in Events class that implements a similar event system. Instead of creating a custom EventBus implementation from scratch, we should extend Obsidian's Events class to maintain consistency with Obsidian's patterns.
+
+Here's a recommended refactoring of the EventBus to leverage Obsidian's Events class:
+
+```typescript
+/**
+ * EventBus for component communication in the Chatsidian plugin.
+ * 
+ * Extends Obsidian's Events class to leverage its existing functionality.
+ */
+
+import { Events } from 'obsidian';
+
+/**
+ * Type definition for event callbacks.
+ */
+export type EventCallback = (data: any) => void | Promise<void>;
+
+/**
+ * EventBus class for managing event subscriptions and emissions.
+ * Extends Obsidian's Events class for better integration.
+ */
+export class EventBus extends Events {
+  /**
+   * Register an event handler.
+   * @param event Event name to listen for
+   * @param callback Function to call when the event is emitted
+   * @returns Reference that can be used with offref
+   */
+  public on(event: string, callback: EventCallback): EventCallback {
+    // Using Obsidian's built-in on method
+    this.on(event, callback);
+    return callback;
+  }
+  
+  /**
+   * Unregister an event handler.
+   * @param event Event name
+   * @param callback Function to remove from listeners
+   */
+  public off(event: string, callback: EventCallback): void {
+    // Using Obsidian's built-in off method
+    this.off(event, callback);
+  }
+  
+  /**
+   * Emit an event to all registered listeners.
+   * @param event Event name
+   * @param data Optional data to pass to listeners
+   */
+  public emit(event: string, data?: any): void {
+    // Using Obsidian's built-in trigger method
+    this.trigger(event, data);
+  }
+  
+  /**
+   * Emit an event and wait for all handlers to complete.
+   * @param event Event name
+   * @param data Optional data to pass to listeners
+   * @returns Promise that resolves when all handlers have completed
+   */
+  public async emitAsync(event: string, data?: any): Promise<void> {
+    const handlers = this.getObsidianEventRef(event);
+    if (!handlers || !handlers.length) return;
+    
+    const promises: Promise<void>[] = [];
+    
+    for (const handler of handlers) {
+      try {
+        const result = handler(data);
+        if (result instanceof Promise) {
+          promises.push(result);
+        }
+      } catch (error) {
+        console.error(`Error in event handler for ${event}:`, error);
+      }
+    }
+    
+    if (promises.length > 0) {
+      await Promise.all(promises);
+    }
+  }
+  
+  /**
+   * Remove all event handlers.
+   */
+  public clear(): void {
+    // Clear all events using Obsidian's API
+    // This is a workaround since Events doesn't have a direct clear method
+    const events = this.getEvents();
+    for (const event of events) {
+      const handlers = this.getObsidianEventRef(event);
+      if (handlers) {
+        for (const handler of handlers.slice()) {
+          this.off(event, handler);
+        }
+      }
+    }
+  }
+  
+  /**
+   * Get a list of all events with listeners.
+   * @returns Array of event names
+   */
+  public getEvents(): string[] {
+    // Access Obsidian's internal events map
+    // Note: This is implementation-specific and may change
+    const eventsMap = (this as any).events;
+    if (!eventsMap) return [];
+    
+    return Array.from(Object.keys(eventsMap));
+  }
+  
+  /**
+   * Check if an event has listeners.
+   * @param event Event name
+   * @returns True if the event has listeners
+   */
+  public hasListeners(event: string): boolean {
+    const handlers = this.getObsidianEventRef(event);
+    return !!handlers && handlers.length > 0;
+  }
+  
+  /**
+   * Get the number of listeners for an event.
+   * @param event Event name
+   * @returns Number of listeners
+   */
+  public listenerCount(event: string): number {
+    const handlers = this.getObsidianEventRef(event);
+    return handlers ? handlers.length : 0;
+  }
+  
+  /**
+   * Helper to access Obsidian's internal event references.
+   * @param event Event name
+   * @returns Array of handlers or undefined
+   */
+  private getObsidianEventRef(event: string): EventCallback[] | undefined {
+    const eventsMap = (this as any).events;
+    return eventsMap ? eventsMap[event] : undefined;
+  }
+}
+```
+
+This implementation maintains the same API while leveraging Obsidian's Events class under the hood. The main advantages are:
+
+1. Better integration with Obsidian's patterns
+2. Leveraging Obsidian's tested event implementation
+3. Consistent behavior with Obsidian's other event systems
+4. Less custom code to maintain
+
+The TypedEventBus can remain largely the same, just adjusting its implementation to work with the updated EventBus that extends Obsidian's Events class.
+
+### Integration with Obsidian's Event Handling
+
+In addition to extending Obsidian's Events class, the plugin should use Obsidian's event registration methods when appropriate:
+
+```typescript
+// In your plugin's main class
+class ChatsidianPlugin extends Plugin {
+  public eventBus: EventBus;
+  
+  async onload() {
+    // Initialize event bus
+    this.eventBus = new EventBus();
+    
+    // Register Obsidian workspace events
+    this.registerEvent(
+      this.app.workspace.on('layout-change', () => {
+        this.eventBus.emit('ui:layout:changed');
+      })
+    );
+    
+    // Register Obsidian file events
+    this.registerEvent(
+      this.app.vault.on('create', (file) => {
+        if (file.path.startsWith(this.settings.conversationsFolder)) {
+          this.eventBus.emit('conversation:file:created', { file });
+        }
+      })
+    );
+    
+    // Other initialization
+  }
+}
+```
+
+By using Obsidian's registration methods via `this.registerEvent()`, these event handlers will be automatically cleaned up when the plugin is unloaded, preventing memory leaks and ensuring proper lifecycle management.

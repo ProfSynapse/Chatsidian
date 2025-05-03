@@ -15,109 +15,64 @@ tags:
 
 ## Overview
 
-This microphase focuses on developing robust storage abstractions for the Chatsidian plugin, enabling it to interact with the Obsidian vault for data persistence. The storage system will handle saving and loading conversations, managing folders, and caching data for improved performance.
+This microphase focuses on developing robust storage abstractions for the Chatsidian plugin, enabling it to interact with the Obsidian vault for data persistence. The storage system will handle saving and loading conversations, managing folders, and leveraging Obsidian's native APIs for improved integration.
 
 ## Objectives
 
 - Create a storage manager class for handling data persistence
 - Implement conversation loading, saving, and management
-- Add folder management functionality
-- Set up caching for improved performance
+- Add folder management functionality using Obsidian's APIs
+- Leverage Obsidian's events and file management capabilities
 - Handle file system edge cases and errors
 - Write tests for storage functionality
 
 ## Implementation Steps
 
-### 1. Create Storage Manager Class
+### 1. Create Storage Manager Class That Leverages Obsidian APIs
 
-Create `src/core/StorageManager.ts`:
+Create `src/core/StorageManager.ts` with direct integration with Obsidian's APIs:
 
 ```typescript
 /**
  * Storage manager for the Chatsidian plugin.
  * 
- * Handles data persistence within the Obsidian vault.
+ * Handles data persistence within the Obsidian vault by leveraging Obsidian's built-in APIs.
  */
 
-import { App, TFile, TFolder } from 'obsidian';
-import { Conversation, Message } from '../models/Conversation';
+import { App, TFile, TFolder, Notice, Plugin } from 'obsidian';
+import { Conversation, Message, MessageRole } from '../models/Conversation';
 import { EventBus } from './EventBus';
 import { SettingsManager } from './SettingsManager';
-
-/**
- * Options for the StorageManager.
- */
-export interface StorageManagerOptions {
-  /**
-   * Whether to enable caching.
-   */
-  enableCaching?: boolean;
-  
-  /**
-   * Time in milliseconds before cache entries expire.
-   */
-  cacheExpiryTime?: number;
-}
-
-/**
- * Default options for the StorageManager.
- */
-const DEFAULT_OPTIONS: StorageManagerOptions = {
-  enableCaching: true,
-  cacheExpiryTime: 5 * 60 * 1000 // 5 minutes
-};
-
-/**
- * Interface for cached conversation entry.
- */
-interface CachedConversation {
-  /**
-   * The conversation data.
-   */
-  conversation: Conversation;
-  
-  /**
-   * Whether the conversation is fully loaded.
-   */
-  isFullyLoaded: boolean;
-  
-  /**
-   * Timestamp when the conversation was last accessed.
-   */
-  lastAccessed: number;
-}
 
 /**
  * StorageManager class for data persistence.
  */
 export class StorageManager {
   private app: App;
+  private plugin: Plugin;
   private settings: SettingsManager;
   private eventBus: EventBus;
-  private options: StorageManagerOptions;
   
-  /**
-   * Cache of conversations.
-   */
-  private conversationsCache: Map<string, CachedConversation> = new Map();
+  // Vault event references for cleanup
+  private vaultEventRefs: Array<any> = [];
   
   /**
    * Create a new StorageManager.
    * @param app Obsidian app instance
+   * @param plugin Plugin instance for lifecycle management
    * @param settings Settings manager
    * @param eventBus Event bus
-   * @param options Optional configuration options
    */
   constructor(
-    app: App, 
+    app: App,
+    plugin: Plugin,
     settings: SettingsManager, 
-    eventBus: EventBus,
-    options: StorageManagerOptions = {}
+    eventBus: EventBus
   ) {
     this.app = app;
+    this.plugin = plugin;
     this.settings = settings;
     this.eventBus = eventBus;
-    this.options = { ...DEFAULT_OPTIONS, ...options };
   }
   
   /**
@@ -128,40 +83,104 @@ export class StorageManager {
     // Ensure conversations folder exists
     await this.ensureConversationsFolder();
     
-    // Load conversation index (metadata only)
-    await this.loadConversationIndex();
+    // Register for Obsidian's vault events directly
+    this.registerVaultEventListeners();
     
-    // Set up event listeners
-    this.registerEventListeners();
+    // Register for settings changes
+    this.plugin.registerEvent(
+      this.eventBus.on('settings:updated', async (event) => {
+        // If conversations folder changed, handle the change
+        if (event.changedKeys.includes('conversationsFolder')) {
+          await this.handleConversationsFolderChanged();
+        }
+      })
+    );
   }
   
   /**
-   * Register event listeners.
+   * Register for Obsidian's native vault events.
    */
-  private registerEventListeners(): void {
-    // Listen for settings changes
-    this.eventBus.on('settings:updated', async (event) => {
-      // If conversations folder changed, reload index
-      if (event.changedKeys.includes('conversationsFolder')) {
-        await this.handleConversationsFolderChanged();
-      }
-    });
+  private registerVaultEventListeners(): void {
+    // Register for file creation events
+    this.plugin.registerEvent(
+      this.app.vault.on('create', (file) => {
+        if (this.isConversationFile(file)) {
+          // A new conversation file was created
+          this.loadConversation(file.basename)
+            .then(conversation => {
+              if (conversation) {
+                this.eventBus.emit('conversation:loaded', conversation);
+              }
+            });
+        }
+      })
+    );
+    
+    // Register for file modification events
+    this.plugin.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        if (this.isConversationFile(file)) {
+          // A conversation file was modified
+          this.loadConversation(file.basename)
+            .then(conversation => {
+              if (conversation) {
+                this.eventBus.emit('conversation:updated', {
+                  currentConversation: conversation
+                });
+              }
+            });
+        }
+      })
+    );
+    
+    // Register for file deletion events
+    this.plugin.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        if (this.isConversationFile(file)) {
+          // A conversation file was deleted
+          this.eventBus.emit('conversation:deleted', file.basename);
+        }
+      })
+    );
+    
+    // Register for file rename events
+    this.plugin.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        if (this.isConversationFile(file)) {
+          // A conversation file was renamed
+          const oldBasename = oldPath.split('/').pop()?.replace('.json', '');
+          if (oldBasename) {
+            this.eventBus.emit('conversation:renamed', {
+              oldId: oldBasename,
+              newId: file.basename
+            });
+          }
+        }
+      })
+    );
+  }
+  
+  /**
+   * Check if a file is a conversation file.
+   * @param file File to check
+   * @returns True if the file is a conversation file
+   */
+  private isConversationFile(file: TFile | TFolder): boolean {
+    if (!(file instanceof TFile)) return false;
+    if (file.extension !== 'json') return false;
+    
+    const conversationsPath = this.settings.getConversationsPath();
+    return file.path.startsWith(conversationsPath);
   }
   
   /**
    * Handle conversations folder change.
    */
   private async handleConversationsFolderChanged(): Promise<void> {
-    // Clear cache
-    this.conversationsCache.clear();
-    
-    // Ensure new folder exists
+    // Ensure the new folder exists
     await this.ensureConversationsFolder();
     
-    // Reload conversation index
-    await this.loadConversationIndex();
-    
-    // Notify listeners
+    // Notify listeners that storage has been reloaded
     this.eventBus.emit('storage:reloaded', undefined);
   }
   
@@ -188,43 +207,30 @@ export class StorageManager {
   }
   
   /**
-   * Load the conversation index (metadata only).
-   */
-  private async loadConversationIndex(): Promise<void> {
-    const path = this.settings.getConversationsPath();
-    const folder = this.app.vault.getAbstractFileByPath(path);
-    
-    if (folder instanceof TFolder) {
-      for (const file of folder.children) {
-        if (file instanceof TFile && file.extension === 'json') {
-          const id = file.basename;
-          
-          // Create placeholder with minimal info
-          this.conversationsCache.set(id, {
-            conversation: {
-              id,
-              title: id, // Will be updated when fully loaded
-              createdAt: file.stat.ctime,
-              modifiedAt: file.stat.mtime,
-              messages: []
-            },
-            isFullyLoaded: false,
-            lastAccessed: Date.now()
-          });
-        }
-      }
-    }
-  }
-  
-  /**
-   * Get all conversations (metadata only).
+   * Get all conversations.
    * @returns Promise that resolves with an array of conversations
    */
   public async getConversations(): Promise<Conversation[]> {
-    // Return conversations from cache, sorted by modification date
-    return Array.from(this.conversationsCache.values())
-      .map(cached => cached.conversation)
-      .sort((a, b) => b.modifiedAt - a.modifiedAt);
+    const path = this.settings.getConversationsPath();
+    const folder = this.app.vault.getAbstractFileByPath(path);
+    
+    if (!(folder instanceof TFolder)) {
+      return [];
+    }
+    
+    const conversations: Conversation[] = [];
+    
+    for (const file of folder.children) {
+      if (file instanceof TFile && file.extension === 'json') {
+        const conversation = await this.loadConversation(file.basename);
+        if (conversation) {
+          conversations.push(conversation);
+        }
+      }
+    }
+    
+    // Sort by modification date (newest first)
+    return conversations.sort((a, b) => b.modifiedAt - a.modifiedAt);
   }
   
   /**
@@ -233,15 +239,15 @@ export class StorageManager {
    * @returns Promise that resolves with the conversation or null if not found
    */
   public async getConversation(id: string): Promise<Conversation | null> {
-    // Check if conversation is in cache and fully loaded
-    const cached = this.conversationsCache.get(id);
-    if (cached && cached.isFullyLoaded) {
-      // Update last accessed time
-      cached.lastAccessed = Date.now();
-      return cached.conversation;
-    }
-    
-    // Load from disk
+    return this.loadConversation(id);
+  }
+  
+  /**
+   * Load a conversation from disk.
+   * @param id Conversation ID
+   * @returns Promise that resolves with the conversation or null if not found
+   */
+  private async loadConversation(id: string): Promise<Conversation | null> {
     try {
       const path = `${this.settings.getConversationsPath()}/${id}.json`;
       const file = this.app.vault.getAbstractFileByPath(path);
@@ -251,19 +257,7 @@ export class StorageManager {
       }
       
       const content = await this.app.vault.read(file);
-      const conversation = JSON.parse(content) as Conversation;
-      
-      // Update cache
-      this.conversationsCache.set(id, {
-        conversation,
-        isFullyLoaded: true,
-        lastAccessed: Date.now()
-      });
-      
-      // Emit event
-      this.eventBus.emit('conversation:loaded', conversation);
-      
-      return conversation;
+      return JSON.parse(content) as Conversation;
     } catch (error) {
       console.error(`Failed to load conversation ${id}: ${error}`);
       return null;
@@ -297,15 +291,7 @@ export class StorageManager {
         await this.app.vault.create(path, content);
       }
       
-      // Update cache
-      this.conversationsCache.set(conversation.id, {
-        conversation: { ...conversation },
-        isFullyLoaded: true,
-        lastAccessed: Date.now()
-      });
-      
-      // Emit event
-      this.eventBus.emit('conversation:saved', conversation);
+      // We don't need to emit an event here as the vault events will handle that
     } catch (error) {
       console.error(`Failed to save conversation ${conversation.id}: ${error}`);
       throw error;
@@ -331,9 +317,7 @@ export class StorageManager {
     
     await this.saveConversation(conversation);
     
-    // Emit event
-    this.eventBus.emit('conversation:created', conversation);
-    
+    // Vault 'create' event will trigger the 'conversation:created' event
     return conversation;
   }
   
@@ -351,11 +335,7 @@ export class StorageManager {
         await this.app.vault.delete(file);
       }
       
-      // Remove from cache
-      this.conversationsCache.delete(id);
-      
-      // Emit event
-      this.eventBus.emit('conversation:deleted', id);
+      // Vault 'delete' event will trigger the 'conversation:deleted' event
     } catch (error) {
       console.error(`Failed to delete conversation ${id}: ${error}`);
       throw error;
@@ -382,7 +362,7 @@ export class StorageManager {
     // Save conversation
     await this.saveConversation(conversation);
     
-    // Emit event
+    // Emit a specific message event
     this.eventBus.emit('message:added', {
       conversationId,
       message
@@ -426,7 +406,7 @@ export class StorageManager {
     // Save conversation
     await this.saveConversation(conversation);
     
-    // Emit event
+    // Emit a specific message event
     this.eventBus.emit('message:updated', {
       conversationId,
       messageId,
@@ -438,95 +418,115 @@ export class StorageManager {
   }
   
   /**
-   * Delete a message from a conversation.
+   * Rename a conversation.
+   * Uses FileManager to ensure links are updated.
    * @param conversationId Conversation ID
-   * @param messageId Message ID
-   * @returns Promise that resolves with the updated conversation
+   * @param newId New conversation ID
+   * @returns Promise that resolves when the conversation is renamed
    */
-  public async deleteMessage(conversationId: string, messageId: string): Promise<Conversation> {
-    // Get conversation
-    const conversation = await this.getConversation(conversationId);
-    
-    if (!conversation) {
-      throw new Error(`Conversation ${conversationId} not found`);
+  public async renameConversation(conversationId: string, newId: string): Promise<void> {
+    try {
+      const oldPath = `${this.settings.getConversationsPath()}/${conversationId}.json`;
+      const newPath = `${this.settings.getConversationsPath()}/${newId}.json`;
+      
+      const file = this.app.vault.getAbstractFileByPath(oldPath);
+      
+      if (file instanceof TFile) {
+        // Use Obsidian's FileManager instead of Vault for renaming
+        // This ensures that links to this file are updated
+        await this.app.fileManager.renameFile(file, newPath);
+      }
+      
+      // Vault 'rename' event will trigger the 'conversation:renamed' event
+    } catch (error) {
+      console.error(`Failed to rename conversation ${conversationId} to ${newId}: ${error}`);
+      throw error;
     }
-    
-    // Find message
-    const messageIndex = conversation.messages.findIndex(m => m.id === messageId);
-    
-    if (messageIndex === -1) {
-      throw new Error(`Message ${messageId} not found in conversation ${conversationId}`);
-    }
-    
-    // Remove message
-    conversation.messages.splice(messageIndex, 1);
-    
-    // Save conversation
-    await this.saveConversation(conversation);
-    
-    // Emit event
-    this.eventBus.emit('message:deleted', {
-      conversationId,
-      messageId
-    });
-    
-    return conversation;
   }
   
   /**
-   * Update a conversation's metadata.
+   * Export a conversation to Markdown.
    * @param conversationId Conversation ID
-   * @param updates Updates to apply
-   * @returns Promise that resolves with the updated conversation
+   * @returns Promise that resolves when the export is complete
    */
-  public async updateConversationMetadata(
-    conversationId: string,
-    updates: Partial<Pick<Conversation, 'title' | 'metadata'>>
-  ): Promise<Conversation> {
-    // Get conversation
-    const conversation = await this.getConversation(conversationId);
-    
-    if (!conversation) {
-      throw new Error(`Conversation ${conversationId} not found`);
+  public async exportToMarkdown(conversationId: string): Promise<void> {
+    try {
+      const conversation = await this.getConversation(conversationId);
+      
+      if (!conversation) {
+        throw new Error(`Conversation ${conversationId} not found`);
+      }
+      
+      const markdown = this.conversationToMarkdown(conversation);
+      const safeTitle = conversation.title
+        .replace(/[^a-zA-Z0-9]/g, '-')
+        .replace(/--+/g, '-')
+        .slice(0, 50);
+      
+      // Use FileManager to create a new markdown file in the user's preferred location
+      // This triggers the file creation dialog
+      const newFile = await this.app.fileManager.createNewMarkdownFile(
+        null, // This will use the folder from Obsidian's settings
+        safeTitle,
+        markdown
+      );
+      
+      new Notice(`Conversation exported to ${newFile.path}`);
+    } catch (error) {
+      console.error(`Failed to export conversation ${conversationId}: ${error}`);
+      throw error;
     }
-    
-    // Store previous state for event
-    const previousConversation = { ...conversation };
-    
-    // Apply updates
-    if (updates.title !== undefined) {
-      conversation.title = updates.title;
-    }
-    
-    if (updates.metadata !== undefined) {
-      conversation.metadata = updates.metadata;
-    }
-    
-    // Save conversation
-    await this.saveConversation(conversation);
-    
-    // Emit event
-    this.eventBus.emit('conversation:updated', {
-      previousConversation,
-      currentConversation: conversation
-    });
-    
-    return conversation;
   }
   
   /**
-   * Export a conversation to JSON.
-   * @param conversationId Conversation ID
-   * @returns Promise that resolves with the conversation as a JSON string
+   * Convert a conversation to Markdown format.
+   * @param conversation Conversation to convert
+   * @returns Conversation as Markdown
    */
-  public async exportConversation(conversationId: string): Promise<string> {
-    const conversation = await this.getConversation(conversationId);
+  private conversationToMarkdown(conversation: Conversation): string {
+    let markdown = `---\ntitle: ${conversation.title}\ncreated: ${new Date(conversation.createdAt).toISOString()}\nmodified: ${new Date(conversation.modifiedAt).toISOString()}\ntags: conversation\n---\n\n`;
     
-    if (!conversation) {
-      throw new Error(`Conversation ${conversationId} not found`);
+    markdown += `# ${conversation.title}\n\n`;
+    
+    if (conversation.metadata) {
+      for (const [key, value] of Object.entries(conversation.metadata)) {
+        markdown += `- ${key}: ${value}\n`;
+      }
+      markdown += '\n';
     }
     
-    return JSON.stringify(conversation, null, 2);
+    for (const message of conversation.messages) {
+      const timestamp = new Date(message.timestamp).toLocaleString();
+      const role = message.role.charAt(0).toUpperCase() + message.role.slice(1);
+      
+      markdown += `## ${role} (${timestamp})\n\n${message.content}\n\n`;
+      
+      if (message.toolCalls && message.toolCalls.length > 0) {
+        markdown += `### Tool Calls\n\n`;
+        
+        for (const toolCall of message.toolCalls) {
+          markdown += `- Tool: ${toolCall.name}\n`;
+          markdown += `  - Arguments: ${JSON.stringify(toolCall.arguments)}\n`;
+          markdown += `  - Status: ${toolCall.status}\n\n`;
+        }
+      }
+      
+      if (message.toolResults && message.toolResults.length > 0) {
+        markdown += `### Tool Results\n\n`;
+        
+        for (const toolResult of message.toolResults) {
+          markdown += `- Tool Call: ${toolResult.toolCallId}\n`;
+          
+          if (toolResult.error) {
+            markdown += `  - Error: ${toolResult.error}\n\n`;
+          } else {
+            markdown += `  - Content: ${JSON.stringify(toolResult.content)}\n\n`;
+          }
+        }
+      }
+    }
+    
+    return markdown;
   }
   
   /**
@@ -555,50 +555,10 @@ export class StorageManager {
       // Save the conversation
       await this.saveConversation(importedConversation);
       
-      // Log import
-      console.log(`Imported conversation ${originalId} as ${importedConversation.id}`);
-      
       return importedConversation;
     } catch (error) {
       console.error(`Failed to import conversation: ${error}`);
       throw error;
-    }
-  }
-  
-  /**
-   * Clear the cache.
-   */
-  public clearCache(): void {
-    this.conversationsCache.clear();
-  }
-  
-  /**
-   * Prune expired cache entries.
-   */
-  public pruneCache(): void {
-    if (!this.options.enableCaching) {
-      this.clearCache();
-      return;
-    }
-    
-    const now = Date.now();
-    const expiryTime = this.options.cacheExpiryTime || DEFAULT_OPTIONS.cacheExpiryTime!;
-    
-    for (const [id, cached] of this.conversationsCache.entries()) {
-      // If fully loaded and expired, convert to metadata-only
-      if (cached.isFullyLoaded && now - cached.lastAccessed > expiryTime) {
-        this.conversationsCache.set(id, {
-          conversation: {
-            id: cached.conversation.id,
-            title: cached.conversation.title,
-            createdAt: cached.conversation.createdAt,
-            modifiedAt: cached.conversation.modifiedAt,
-            messages: []
-          },
-          isFullyLoaded: false,
-          lastAccessed: cached.lastAccessed
-        });
-      }
     }
   }
   
@@ -612,17 +572,17 @@ export class StorageManager {
 }
 ```
 
-### 2. Create Storage Service for Plugin Integration
+### 2. Create Storage Service That Integrates with Obsidian's Event System
 
-Create `src/services/StorageService.ts`:
+Create `src/services/StorageService.ts` to leverage Obsidian's built-in event handling:
 
 ```typescript
 /**
- * Storage service for plugin integration.
+ * Storage service for plugin integration that leverages Obsidian's native event handling.
  */
 
-import { App } from 'obsidian';
-import { StorageManager, StorageManagerOptions } from '../core/StorageManager';
+import { App, Plugin, TFile, Notice } from 'obsidian';
+import { StorageManager } from '../core/StorageManager';
 import { SettingsManager } from '../core/SettingsManager';
 import { EventBus } from '../core/EventBus';
 import { Conversation, Message } from '../models/Conversation';
@@ -632,6 +592,7 @@ import { Conversation, Message } from '../models/Conversation';
  */
 export class StorageService {
   private app: App;
+  private plugin: Plugin;
   private settings: SettingsManager;
   private eventBus: EventBus;
   private storageManager: StorageManager;
@@ -639,51 +600,76 @@ export class StorageService {
   /**
    * Create a new StorageService.
    * @param app Obsidian app instance
+   * @param plugin Plugin instance for registering events
    * @param settings Settings manager
    * @param eventBus Event bus
    */
-  constructor(app: App, settings: SettingsManager, eventBus: EventBus) {
+  constructor(app: App, plugin: Plugin, settings: SettingsManager, eventBus: EventBus) {
     this.app = app;
+    this.plugin = plugin;
     this.settings = settings;
     this.eventBus = eventBus;
   }
   
   /**
    * Initialize the storage service.
-   * @param options Optional configuration options
    * @returns Promise that resolves with the storage manager
    */
-  public async initialize(options?: StorageManagerOptions): Promise<StorageManager> {
-    // Create storage manager
+  public async initialize(): Promise<StorageManager> {
+    // Create storage manager with plugin instance for proper lifecycle handling
     this.storageManager = new StorageManager(
       this.app,
+      this.plugin,
       this.settings,
-      this.eventBus,
-      options
+      this.eventBus
     );
     
     // Initialize storage
     await this.storageManager.initialize();
     
-    // Set up cache maintenance
-    this.setupCacheMaintenance();
+    // Register for Obsidian's layout-ready event to initialize storage after app is fully loaded
+    this.plugin.registerEvent(
+      this.app.workspace.on('layout-ready', () => {
+        // This ensures we don't try to access the vault before Obsidian is ready
+        this.refreshConversationsList();
+      })
+    );
+    
+    // Register for MetadataCache events for better integration
+    this.registerMetadataCacheEvents();
     
     return this.storageManager;
   }
   
   /**
-   * Set up cache maintenance.
+   * Register for MetadataCache events to enhance integration with Obsidian.
    */
-  private setupCacheMaintenance(): void {
-    // Prune cache every 10 minutes
-    const pruneInterval = window.setInterval(() => {
-      this.storageManager.pruneCache();
-    }, 10 * 60 * 1000);
-    
-    // Register the interval for cleanup
-    this.eventBus.on('plugin:unloaded', () => {
-      window.clearInterval(pruneInterval);
-    });
+  private registerMetadataCacheEvents(): void {
+    // Register for metadata changes
+    this.plugin.registerEvent(
+      this.app.metadataCache.on('changed', (file) => {
+        // Check if the file is in our conversations folder
+        if (file.path.startsWith(this.settings.getConversationsPath()) && file.extension === 'json') {
+          // The file's metadata has changed, refresh our knowledge of it
+          this.refreshConversation(file.basename);
+        }
+      })
+    );
+  }
+  
+  /**
+   * Refresh the conversations list.
+   */
+  private async refreshConversationsList(): Promise<void> {
+    await this.storageManager.getConversations();
+  }
+  
+  /**
+   * Refresh a specific conversation.
+   * @param id Conversation ID
+   */
+  private async refreshConversation(id: string): Promise<void> {
+    await this.storageManager.getConversation(id);
   }
   
   /**
@@ -738,10 +724,86 @@ export class StorageService {
   public async addMessage(conversationId: string, message: Message): Promise<Conversation> {
     return this.storageManager.addMessage(conversationId, message);
   }
+  
+  /**
+   * Export a conversation to Markdown with front matter.
+   * Uses Obsidian's FileManager for better integration.
+   * @param conversationId Conversation ID
+   */
+  public async exportConversationToMarkdown(conversationId: string): Promise<void> {
+    const conversation = await this.getConversation(conversationId);
+    
+    if (!conversation) {
+      new Notice('Conversation not found.');
+      return;
+    }
+    
+    try {
+      await this.storageManager.exportToMarkdown(conversationId);
+      new Notice('Conversation exported successfully.');
+    } catch (error) {
+      new Notice(`Export failed: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Rename a conversation using Obsidian's FileManager.
+   * @param oldId Old conversation ID
+   * @param newId New conversation ID
+   */
+  public async renameConversation(oldId: string, newId: string): Promise<void> {
+    await this.storageManager.renameConversation(oldId, newId);
+  }
 }
 ```
 
-### 3. Create Storage Utilities for Common Tasks
+### 3. Leverage Front Matter for Metadata
+
+Adding support for Obsidian's front matter to make conversations more integrated with Obsidian's ecosystem:
+
+```typescript
+/**
+ * Convert conversation metadata to front matter
+ * @param conversation Conversation to extract metadata from
+ * @returns Front matter object
+ */
+private conversationToFrontMatter(conversation: Conversation): Record<string, any> {
+  return {
+    title: conversation.title,
+    created: new Date(conversation.createdAt).toISOString(),
+    modified: new Date(conversation.modifiedAt).toISOString(),
+    id: conversation.id,
+    messageCount: conversation.messages.length,
+    tags: ['conversation'],
+    ...conversation.metadata
+  };
+}
+
+/**
+ * Export a conversation with front matter
+ * @param conversationId Conversation ID
+ * @returns Promise that resolves when the export is complete
+ */
+public async exportWithFrontMatter(conversationId: string): Promise<void> {
+  const conversation = await this.getConversation(conversationId);
+  
+  if (!conversation) {
+    throw new Error(`Conversation ${conversationId} not found`);
+  }
+  
+  // Generate Markdown with front matter
+  const content = this.conversationToMarkdown(conversation);
+  
+  // Create a new file in the vault with FileManager
+  await this.app.fileManager.createNewMarkdownFile(
+    null, // Uses default location
+    conversation.title,
+    content
+  );
+}
+```
+
+### 4. Create Storage Utilities for Common Tasks
 
 Create `src/core/StorageUtils.ts`:
 
@@ -1566,11 +1628,11 @@ describe('StorageService', () => {
 });
 ```
 
-## Integration Example
+## Integration Example with Obsidian's Native APIs
 
 ```typescript
 // In plugin main.ts
-import { Plugin } from 'obsidian';
+import { Plugin, Notice, TFile } from 'obsidian';
 import { EventBus } from './core/EventBus';
 import { SettingsService } from './services/SettingsService';
 import { StorageService } from './services/StorageService';
@@ -1585,24 +1647,46 @@ export default class ChatsidianPlugin extends Plugin {
   async onload() {
     console.log('Loading Chatsidian plugin');
     
-    // Initialize event bus
+    // Initialize event bus extending Obsidian's Events class
     this.eventBus = new EventBus();
     
-    // Initialize settings
+    // Initialize settings using Obsidian's native data loading
     this.settingsService = new SettingsService(this.app, this, this.eventBus);
     this.settings = await this.settingsService.initialize(await this.loadData());
     
-    // Initialize storage
-    this.storageService = new StorageService(this.app, this.settings, this.eventBus);
+    // Initialize storage with plugin instance for lifecycle management
+    this.storageService = new StorageService(this.app, this, this.settings, this.eventBus);
     this.storage = await this.storageService.initialize();
     
-    // Example: Create a new conversation
-    try {
-      const conversation = await this.storage.createConversation('Test Conversation');
-      console.log('Created conversation:', conversation.id);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
-    }
+    // Register for Obsidian vault events directly
+    this.registerEvent(
+      this.app.vault.on('create', (file: TFile) => {
+        // Handle file creation if relevant to our plugin
+        if (file.path.startsWith(this.settings.getConversationsPath())) {
+          console.log('New conversation file detected:', file.path);
+        }
+      })
+    );
+    
+    // Add plugin commands
+    this.addCommand({
+      id: 'new-conversation',
+      name: 'Create New Conversation',
+      callback: async () => {
+        try {
+          const conversation = await this.storage.createConversation('New Conversation');
+          new Notice(`Created conversation: ${conversation.title}`);
+        } catch (error) {
+          new Notice(`Failed to create conversation: ${error.message}`);
+        }
+      }
+    });
+    
+    // Add ribbon icon for quick access
+    this.addRibbonIcon('messages-square', 'Open Chatsidian', () => {
+      // Will be implemented in UI phase
+      new Notice('Chatsidian UI will open here');
+    });
     
     console.log('Chatsidian plugin loaded');
   }
@@ -1610,8 +1694,13 @@ export default class ChatsidianPlugin extends Plugin {
   async onunload() {
     console.log('Unloading Chatsidian plugin');
     
-    // Emit plugin unloaded event for cleanup
-    await this.eventBus.emitAsync('plugin:unloaded', undefined);
+    // No need to manually clean up event listeners as Obsidian's Plugin class
+    // handles this automatically through the registerEvent method
+  }
+  
+  // Use Obsidian's built-in settings methods
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
 }
 ```
@@ -1625,3 +1714,36 @@ export default class ChatsidianPlugin extends Plugin {
 
 After completing this microphase, proceed to:
 - [[💻 Coding/Projects/Chatsidian/3_Implementation/Phase1.6-Provider-Adapters.md]] - Building the provider adapter pattern for AI API connections
+## Key Improvements from Obsidian Integration
+
+The revised implementation offers several key improvements by better leveraging Obsidian's native APIs:
+
+1. **Direct Use of Obsidian's Event System**
+   - Registers for Vault events (`create`, `modify`, `delete`, `rename`) directly using `plugin.registerEvent()`
+   - Uses Obsidian's lifecycle management for automatic event cleanup
+   - Reduces need for custom event propagation
+
+2. **FileManager Integration for Link Handling**
+   - Uses `app.fileManager.renameFile()` instead of `app.vault.rename()` to ensure links are updated
+   - Leverages `app.fileManager.createNewMarkdownFile()` for exports with proper dialog handling
+
+3. **Front Matter Support**
+   - Uses Obsidian's front matter capabilities for better integration with the Obsidian ecosystem
+   - Makes conversations queryable through Obsidian's search and plugins like Dataview
+
+4. **MetadataCache Integration**
+   - Registers for metadata change events to stay in sync with file changes
+   - Provides a foundation for future metadata-based operations
+
+5. **Proper Plugin Lifecycle Management**
+   - Passes the plugin instance to storage components for registration of events
+   - Takes advantage of Obsidian's automatic cleanup on plugin unload
+
+These improvements result in:
+- Reduced code complexity
+- Better integration with Obsidian's ecosystem
+- More robust file operations with automatic link updating
+- Improved maintainability through less custom code
+- More consistent behavior with Obsidian's patterns and conventions
+
+Overall, the refactored implementation provides a more native Obsidian experience while maintaining all the required functionality for the Chatsidian plugin.

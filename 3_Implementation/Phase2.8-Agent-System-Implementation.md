@@ -93,9 +93,9 @@ export interface AgentDefinition {
   builtIn: boolean;
   
   /**
-   * Icon for the agent
+   * Emoji for the agent avatar
    */
-  icon?: string;
+  emoji?: string;
   
   /**
    * Agent capabilities (for UI display)
@@ -517,7 +517,7 @@ don't make up information - just say you don't know.`,
       stream: true
     },
     builtIn: true,
-    icon: 'message-circle',
+    emoji: '🤖',
     capabilities: [
       'Answer questions and provide information',
       'Engage in thoughtful conversation',
@@ -576,7 +576,7 @@ Always prioritize preserving user data and confirming before making significant 
       stream: true
     },
     builtIn: true,
-    icon: 'folder',
+    emoji: '📁',
     capabilities: [
       'Comprehensive vault management',
       'Note and folder operations',
@@ -628,7 +628,7 @@ Present information clearly, cite specific notes, and help the user expand their
       stream: true
     },
     builtIn: true,
-    icon: 'book-open',
+    emoji: '📚',
     capabilities: [
       'Comprehensive vault search',
       'Information retrieval and synthesis',
@@ -682,7 +682,7 @@ Focus on clarity, actionability, and practicality in your suggestions and plans.
       stream: true
     },
     builtIn: true,
-    icon: 'clipboard-list',
+    emoji: '📋',
     capabilities: [
       'Project planning and structuring',
       'Task breakdown and organization',
@@ -733,7 +733,7 @@ Be creative yet practical, and always aim to elevate the quality of their conten
       stream: true
     },
     builtIn: true,
-    icon: 'edit-3',
+    emoji: '✏️',
     capabilities: [
       'Content creation and drafting',
       'Editing and refinement',
@@ -787,7 +787,7 @@ Seek to understand the research question deeply and provide well-structured, evi
       stream: true
     },
     builtIn: true,
-    icon: 'search',
+    emoji: '🔍',
     capabilities: [
       'Comprehensive information gathering',
       'Research organization and structuring',
@@ -837,7 +837,7 @@ Be clear and precise in your explanations, and provide well-structured, readable
       stream: true
     },
     builtIn: true,
-    icon: 'code',
+    emoji: '👨‍💻',
     capabilities: [
       'Code explanation and documentation',
       'Function and script writing',
@@ -1005,7 +1005,7 @@ public async createCustomAgent(definition: Partial<AgentDefinition>): Promise<Ag
       stream: true
     },
     builtIn: false,
-    icon: definition.icon || 'user',
+    emoji: definition.emoji || '🤖',
     capabilities: definition.capabilities || [],
     limitations: definition.limitations || [],
     created: Date.now(),

@@ -94,36 +94,53 @@ export default class ChatsidianPlugin extends Plugin {
    * Plugin initialization
    */
   async onload(): Promise<void> {
-    // Core component initialization
-    await this.initializeCore();
-    
-    // Provider initialization
-    await this.initializeProviders();
-    
-    // Command registration
-    this.registerCommands();
-    
-    // View registration
-    this.registerViews();
-    
-    // Event registration
-    this.registerEventListeners();
-    
-    // Settings tab
-    this.addSettingTab(new ChatsidianSettingTab(this.app, this));
-    
-    console.log(`${PLUGIN_NAME} plugin loaded`);
+    // Call super.onload() first to properly initialize as a Component
+    await super.onload();
+
+    try {
+      // Core component initialization
+      await this.initializeCore();
+      
+      // Provider initialization
+      await this.initializeProviders();
+      
+      // Command registration
+      this.registerCommands();
+      
+      // View registration
+      this.registerViews();
+      
+      // Event registration
+      this.registerEventListeners();
+      
+      // Settings tab
+      this.addSettingTab(new ChatsidianSettingTab(this.app, this));
+      
+      // Version check and migrations
+      await this.handleVersionChanges();
+      
+      console.log(`${PLUGIN_NAME} plugin loaded`);
+    } catch (error) {
+      console.error(`Failed to load ${PLUGIN_NAME} plugin:`, error);
+      new Notice(`${PLUGIN_NAME} error: ${error.message || 'Unknown error during initialization'}`);
+    }
   }
   
   /**
    * Plugin cleanup
    */
   async onunload(): Promise<void> {
-    // Clean up resources
-    this.unregisterEventListeners();
+    // Let Obsidian's Component class handle registered event cleanup
+    await super.onunload();
     
     // Close any open views
-    this.closeViews();
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT);
+    this.app.workspace.detachLeavesOfType('chatsidian-sidebar');
+    
+    // Additional cleanup for components not registered with addChild
+    if (this.eventBus) {
+      this.eventBus.offAll();
+    }
     
     console.log(`${PLUGIN_NAME} plugin unloaded`);
   }
@@ -145,20 +162,30 @@ The core components need to be initialized in a specific order to ensure proper 
 private async initializeCore(): Promise<void> {
   // 1. Create event bus first (no dependencies)
   this.eventBus = new EventBus();
+  // Add as child for lifecycle management
+  this.addChild(this.eventBus);
   console.log('Event bus initialized');
   
   // 2. Initialize settings manager with event bus
   this.settings = new SettingsManager(this);
-  await this.settings.loadSettings();
+  // Add as child for lifecycle management
+  this.addChild(this.settings);
+  // Load settings using Obsidian's data persistence
+  this.settings.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   console.log('Settings manager initialized');
   
   // 3. Initialize storage manager with settings and event bus
   this.storage = new StorageManager(this.app, this.settings, this.eventBus);
+  // Add as child for lifecycle management
+  this.addChild(this.storage);
   await this.storage.initialize();
   console.log('Storage manager initialized');
   
   // 4. Register default folders if they don't exist
   await this.ensurePluginFolders();
+  
+  // Register for external settings changes (syncing across devices)
+  this.register(() => this.app.workspace.trigger('chatsidian:ready'));
   
   // Create a 'ready' event for other components to listen for
   this.eventBus.emit('plugin:ready', { plugin: this });
@@ -197,8 +224,16 @@ private async ensurePluginFolders(): Promise<void> {
  * Initialize provider adapters
  */
 private async initializeProviders(): Promise<void> {
-  // Create validation service
-  this.validationService = new ValidationService(this.settings, this.eventBus);
+  // Create validation service with plugin instance for lifecycle management
+  this.validationService = new ValidationService(
+    this.settings, 
+    this.eventBus,
+    this.saveSettings.bind(this),
+    this  // Pass plugin instance for lifecycle management
+  );
+  
+  // Add as child for lifecycle management
+  this.addChild(this.validationService);
   
   // Get provider from settings
   const provider = this.settings.getProvider();
@@ -208,23 +243,42 @@ private async initializeProviders(): Promise<void> {
   if (apiKey) {
     const isValid = await this.validationService.validateApiKey(provider, apiKey);
     console.log(`Provider ${provider} API key validation: ${isValid ? 'valid' : 'invalid'}`);
+    
+    if (!isValid) {
+      // Show user-friendly notice if API key is invalid
+      new Notice(`${provider} API key validation failed. Please check your settings.`);
+    }
   } else {
     console.warn(`No API key set for provider ${provider}`);
+    new Notice(`No API key set for provider ${provider}. Please configure in settings.`);
   }
   
   // Create adapter
   try {
     this.currentProvider = ProviderFactory.createAdapterFromSettings(this.settings);
+    // Register adapter with plugin lifecycle if it supports it
+    if (typeof this.currentProvider.registerPlugin === 'function') {
+      this.currentProvider.registerPlugin(this);
+    }
     console.log(`Created provider adapter for ${provider}`);
   } catch (error) {
     console.error(`Failed to create provider adapter for ${provider}:`, error);
+    new Notice(`Failed to initialize provider: ${error.message || 'Unknown error'}`);
     this.eventBus.emit('provider:error', {
       provider,
       error
     });
   }
   
-  // Listen for settings changes
+  // Listen for settings changes using Obsidian's registerEvent
+  this.registerEvent(
+    this.app.workspace.on('layout-ready', () => {
+      // Perform actions when layout is ready - this ensures vault is accessible
+      console.log('Obsidian layout ready, provider adapters initialized');
+    })
+  );
+  
+  // Register for settings changes using Obsidian's registerEvent
   this.registerEvent(
     this.eventBus.on('settings:changed', async ({ changedKeys }) => {
       if (changedKeys.includes('provider') || changedKeys.includes('apiKey')) {
@@ -248,32 +302,60 @@ The plugin needs to register commands for user interaction and views for display
  * Register plugin commands
  */
 private registerCommands(): void {
-  // Command to open chat view
+  // Command to open chat view (always available)
   this.addCommand({
     id: 'open-chat',
     name: 'Open Chat',
+    icon: 'message-circle',
     callback: () => this.activateChatView()
   });
   
-  // Command to start new conversation
+  // Command to start new conversation (always available)
   this.addCommand({
     id: 'new-conversation',
     name: 'New Conversation',
+    icon: 'plus-circle',
     callback: () => this.startNewConversation()
   });
   
-  // Command to toggle sidebar
+  // Command to toggle sidebar (always available)
   this.addCommand({
     id: 'toggle-sidebar',
     name: 'Toggle Conversation Sidebar',
+    icon: 'sidebar',
     callback: () => this.toggleSidebar()
   });
   
-  // Command to insert conversation into current note
+  // Command to insert conversation at cursor (only available in editor context)
   this.addCommand({
     id: 'insert-conversation',
     name: 'Insert Conversation at Cursor',
-    editorCallback: (editor) => this.insertConversationAtCursor(editor)
+    icon: 'file-text',
+    editorCheckCallback: (checking: boolean, editor: Editor, view: MarkdownView) => {
+      // Only show command in editor
+      if (checking) {
+        return true;
+      }
+      
+      // Execute command
+      this.insertConversationAtCursor(editor);
+    }
+  });
+  
+  // Command to insert conversation as reference link
+  this.addCommand({
+    id: 'insert-conversation-link',
+    name: 'Insert Conversation as Link',
+    icon: 'link',
+    editorCheckCallback: (checking: boolean, editor: Editor, view: MarkdownView) => {
+      // Only show command in editor
+      if (checking) {
+        return this.storage.hasConversations();
+      }
+      
+      // Execute command
+      this.insertConversationAsLink(editor);
+    }
   });
   
   console.log('Commands registered');
@@ -286,16 +368,59 @@ private registerViews(): void {
   // Register chat view
   this.registerView(
     VIEW_TYPE_CHAT,
-    (leaf) => new ChatView(leaf, this)
+    (leaf) => {
+      const view = new ChatView(leaf, this);
+      // When plugin unloads, this view will be cleaned up automatically
+      return view;
+    }
   );
   
   // Register sidebar view
   this.registerView(
     'chatsidian-sidebar',
-    (leaf) => new ChatSidebar(leaf, this)
+    (leaf) => {
+      const sidebar = new ChatSidebar(leaf, this);
+      return sidebar;
+    }
+  );
+  
+  // Register for layout changes to restore views when needed
+  this.registerEvent(
+    this.app.workspace.on('layout-ready', () => {
+      // Check for any previously open views that need to be restored
+      this.restoreViews();
+    })
+  );
+  
+  // Listen for active leaf changes to update UI state
+  this.registerEvent(
+    this.app.workspace.on('active-leaf-change', (leaf) => {
+      if (leaf && leaf.view.getViewType() === VIEW_TYPE_CHAT) {
+        // Chat view is now active
+        this.eventBus.emit('chatview:activated', { leaf });
+      }
+    })
   );
   
   console.log('Views registered');
+}
+
+/**
+ * Restore views after workspace layout is ready
+ */
+private restoreViews(): void {
+  // Check if we should auto-open chat view on startup
+  if (this.settings.getSettings().autoOpenChat) {
+    this.activateChatView();
+  }
+  
+  // Check if we should auto-open sidebar on startup
+  if (this.settings.getSettings().autoOpenSidebar) {
+    const leaves = this.app.workspace.getLeavesOfType('chatsidian-sidebar');
+    if (leaves.length === 0) {
+      this.toggleSidebar();
+    }
+  }
 }
 
 /**
@@ -411,13 +536,6 @@ The plugin needs to register various event listeners and ensure proper cleanup w
  * Register event listeners
  */
 private registerEventListeners(): void {
-  // Listen for layout changes to restore views
-  this.registerEvent(
-    this.app.workspace.on('layout-change', () => {
-      this.handleLayoutChange();
-    })
-  );
-  
   // Listen for file menu events to add custom menu items
   this.registerEvent(
     this.app.workspace.on('file-menu', (menu, file) => {
@@ -425,48 +543,89 @@ private registerEventListeners(): void {
     })
   );
   
-  // Listen for active leaf changes to update UI
+  // Register for vault changes
   this.registerEvent(
-    this.app.workspace.on('active-leaf-change', (leaf) => {
-      this.handleActiveLeafChange(leaf);
+    this.app.vault.on('create', (file) => {
+      // If this is a conversation file, update conversation list
+      if (file instanceof TFile && file.path.startsWith(this.settings.getConversationsFolderPath())) {
+        this.eventBus.emit('conversation:file-created', { file });
+      }
     })
   );
   
-  // Listen for global plugin errors
-  this.eventBus.on('plugin:error', ({ source, error }) => {
-    console.error(`Plugin error from ${source}:`, error);
-    // Show error notification
-    new Notice(`Chatsidian error: ${error.message || 'Unknown error'}`);
-  });
+  this.registerEvent(
+    this.app.vault.on('delete', (file) => {
+      // If this is a conversation file, update conversation list
+      if (file instanceof TFile && file.path.startsWith(this.settings.getConversationsFolderPath())) {
+        this.eventBus.emit('conversation:file-deleted', { path: file.path });
+      }
+    })
+  );
   
-  // Listen for provider errors
-  this.eventBus.on('provider:error', ({ provider, error }) => {
-    console.error(`Provider ${provider} error:`, error);
-    // Show error notification
-    new Notice(`${provider} error: ${error.message || 'Unknown error'}`);
-  });
+  this.registerEvent(
+    this.app.vault.on('rename', (file, oldPath) => {
+      // If this is a conversation file, update conversation list
+      if (file instanceof TFile && file.path.startsWith(this.settings.getConversationsFolderPath())) {
+        this.eventBus.emit('conversation:file-renamed', { file, oldPath });
+      }
+    })
+  );
   
-  // Listen for storage errors
-  this.eventBus.on('storage:error', ({ operation, error }) => {
-    console.error(`Storage error during ${operation}:`, error);
-    // Show error notification
-    new Notice(`Storage error: ${error.message || 'Unknown error'}`);
+  // Register for EventBus events using Obsidian's registerEvent pattern
+  // This ensures proper cleanup when plugin unloads
+  this.registerEvent(
+    this.eventBus.on('plugin:error', ({ source, error }) => {
+      console.error(`Plugin error from ${source}:`, error);
+      // Show error notification using Obsidian's Notice API
+      new Notice(`Chatsidian error: ${error.message || 'Unknown error'}`);
+    })
+  );
+  
+  this.registerEvent(
+    this.eventBus.on('provider:error', ({ provider, error }) => {
+      console.error(`Provider ${provider} error:`, error);
+      // Show error notification
+      new Notice(`${provider} error: ${error.message || 'Unknown error'}`);
+    })
+  );
+  
+  this.registerEvent(
+    this.eventBus.on('storage:error', ({ operation, error }) => {
+      console.error(`Storage error during ${operation}:`, error);
+      // Show error notification
+      new Notice(`Storage error: ${error.message || 'Unknown error'}`);
+    })
+  );
+  
+  // Register custom cleanup functions using Obsidian's register method
+  this.register(() => {
+    // Custom cleanup on plugin unload
+    console.log('Performing custom cleanup tasks');
   });
   
   console.log('Event listeners registered');
 }
 
 /**
- * Unregister event listeners
+ * Handle external settings changes from Obsidian Sync
+ * This is an optional method from Obsidian's Plugin class
  */
-private unregisterEventListeners(): void {
-  // The Plugin.registerEvent method automatically tracks registered events
-  // and unregisters them on plugin unload, so no manual cleanup is needed
+onExternalSettingsChange(): void {
+  console.log('External settings change detected');
   
-  // However, we should manually clean up events registered directly with EventBus
-  this.eventBus.offAll();
-  
-  console.log('Event listeners unregistered');
+  // Reload settings
+  this.loadData().then((data) => {
+    // Update settings
+    this.settings.updateSettingsObject(data);
+    
+    // Notify components of settings change
+    this.eventBus.emit('settings:external-change', {
+      settings: this.settings.getSettings()
+    });
+    
+    // Reinitialize affected components
+    this.initializeProviders();
+  });
 }
 
 /**
@@ -541,68 +700,116 @@ The main plugin class interacts with several UI components, passing necessary de
 
 ```typescript
 /**
- * Chat view implementation
+ * Chat view implementation following Obsidian's ItemView pattern
  */
 export class ChatView extends ItemView {
+  // UI components
+  private headerEl: HTMLElement;
+  private messageListEl: HTMLElement;
+  private inputAreaEl: HTMLElement;
+  
+  // Current conversation reference
+  private currentConversationId: string | null = null;
+  
+  // Register event functions for proper Obsidian lifecycle management
+  private registerFns: Array<() => void> = [];
+  
   /**
    * Constructor for ChatView
    */
   constructor(leaf: WorkspaceLeaf, private plugin: ChatsidianPlugin) {
     super(leaf);
+    
+    // Add Component as child of plugin for proper lifecycle management
+    this.plugin.addChild(this);
   }
   
   /**
-   * Get view type
+   * Get view type - required by Obsidian ItemView interface
    */
   getViewType(): string {
     return VIEW_TYPE_CHAT;
   }
   
   /**
-   * Get display text
+   * Get display text - required by Obsidian ItemView interface
    */
   getDisplayText(): string {
     return 'Chatsidian';
   }
   
   /**
-   * Get icon
+   * Get icon - required by Obsidian ItemView interface
    */
   getIcon(): string {
     return 'message-circle';
   }
   
   /**
-   * Render view
+   * Render view when opened - part of Obsidian ItemView lifecycle
    */
   async onOpen(): Promise<void> {
-    // Create container element
-    const container = this.containerEl.children[1];
-    container.empty();
-    container.addClass('chatsidian-container');
+    const {contentEl} = this;
+    
+    // Create main container with Obsidian CSS classes
+    contentEl.empty();
+    contentEl.addClass('chatsidian-container');
     
     // Create chat components
-    this.renderHeader(container);
-    this.renderMessageList(container);
-    this.renderInputArea(container);
+    this.headerEl = this.renderHeader(contentEl);
+    this.messageListEl = this.renderMessageList(contentEl);
+    this.inputAreaEl = this.renderInputArea(contentEl);
     
-    // Register event listeners
+    // Register events using Obsidian's registerDomEvent pattern
     this.registerViewEvents();
+    
+    // Load last active conversation if available
+    const lastConversationId = this.plugin.settings.getSettings().lastActiveConversation;
+    if (lastConversationId) {
+      await this.loadConversation(lastConversationId);
+    }
   }
   
   /**
-   * Clean up on close
+   * Clean up on close - part of Obsidian ItemView lifecycle
    */
   async onClose(): Promise<void> {
-    // Unregister events
-    // Clean up resources
+    // Clean up DOM
+    this.contentEl.empty();
+    
+    // Execute all registered cleanup functions
+    this.registerFns.forEach(fn => fn());
+    this.registerFns = [];
+    
+    // Save state
+    if (this.currentConversationId) {
+      await this.plugin.settings.updateSettings({
+        lastActiveConversation: this.currentConversationId
+      });
+      await this.plugin.saveSettings();
+    }
+    
+    // Emit event for other components
+    this.plugin.eventBus.emit('chatview:closed');
+  }
+  
+  /**
+   * Handle Obsidian layout resize events
+   */
+  onResize(): void {
+    // Update UI based on new size
+    // This keeps the UI responsive when resizing panes
+    this.plugin.eventBus.emit('chatview:resized', {
+      width: this.contentEl.offsetWidth,
+      height: this.contentEl.offsetHeight
+    });
   }
   
   // Other view methods...
 }
 
 /**
- * Settings tab implementation
+ * Settings tab implementation following Obsidian's PluginSettingTab pattern
  */
 export class ChatsidianSettingTab extends PluginSettingTab {
   /**
@@ -613,13 +820,17 @@ export class ChatsidianSettingTab extends PluginSettingTab {
   }
   
   /**
-   * Display settings
+   * Display settings - part of Obsidian PluginSettingTab lifecycle
    */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
     
-    // Create setting groups
+    // Add plugin description and version info
+    const descEl = containerEl.createEl('div', { cls: 'setting-item-description' });
+    descEl.innerHTML = `<p>Configure Chatsidian AI assistant for your Obsidian vault.<br>Version: ${this.plugin.manifest.version}</p>`;
+    
+    // Create setting groups with Obsidian's built-in setting components
     this.addGeneralSettings(containerEl);
     this.addProviderSettings(containerEl);
     this.addStorageSettings(containerEl);
@@ -627,11 +838,38 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     this.addAdvancedSettings(containerEl);
   }
   
+  /**
+   * Add general settings using Obsidian's Setting API
+   */
+  private addGeneralSettings(containerEl: HTMLElement): void {
+    containerEl.createEl('h3', {text: 'General Settings'});
+    
+    new Setting(containerEl)
+      .setName('Plugin enabled')
+      .setDesc('Enable or disable Chatsidian functionality')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.getSettings().enabled)
+        .onChange(async (value) => {
+          await this.plugin.settings.updateSettings({enabled: value});
+          await this.plugin.saveSettings();
+        }));
+    
+    new Setting(containerEl)
+      .setName('Auto-open chat')
+      .setDesc('Automatically open the chat view when Obsidian starts')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.getSettings().autoOpenChat)
+        .onChange(async (value) => {
+          await this.plugin.settings.updateSettings({autoOpenChat: value});
+          await this.plugin.saveSettings();
+        }));
+  }
+  
   // Other settings methods...
 }
 
 /**
- * Conversation model used throughout the plugin
+ * Conversation model with Obsidian-specific metadata
  */
 export interface Conversation {
   id: string;
@@ -646,11 +884,51 @@ export interface Conversation {
     metadata?: Record<string, any>;
   }>;
   metadata?: {
+    // Provider details
     model?: string;
+    provider?: string;
     systemPrompt?: string;
+    
+    // Obsidian-specific metadata
+    vault?: string;
+    linkedFiles?: Array<string>;
     tags?: string[];
+    
+    // Current workspace/editing context
+    activePath?: string;
+    selection?: string;
+    cursor?: {line: number, ch: number};
+    
+    // Additional metadata
     [key: string]: any;
   };
+  
+  // Methods for better interop with Obsidian
+  toMarkdown?(): string;
+  toHtml?(): string;
+}
+
+/**
+ * Conversation file format based on Obsidian's file metadata
+ */
+export interface ConversationFile {
+  // Standard Obsidian frontmatter
+  frontmatter: {
+    title: string;
+    date: string; // ISO date string
+    tags: string[];
+    model: string;
+    provider: string;
+    systemPrompt?: string;
+  };
+  
+  // Conversation content
+  messages: Array<{
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: number; // Unix timestamp
+    metadata?: Record<string, any>;
+  }>;
 }
 ```
 
@@ -664,154 +942,140 @@ A robust error handling and logging strategy is essential for plugin stability a
 
 ```typescript
 /**
- * Error handling utilities
+ * Simplified error handling aligned with Obsidian patterns
  */
-export class ErrorHandler {
-  /**
-   * Constructor
-   */
-  constructor(private eventBus: EventBus) {}
+
+/**
+ * Handle an error with source context
+ * @param source Source of the error
+ * @param error Error object
+ * @param plugin Plugin instance for notifications
+ */
+export function handleError(source: string, error: Error, plugin: ChatsidianPlugin): void {
+  // Log error with source context
+  console.error(`[${PLUGIN_NAME}:${source}] Error:`, error);
   
-  /**
-   * Handle an error with source context
-   */
-  public handleError(source: string, error: Error): void {
-    // Log error
-    console.error(`[${source}] Error:`, error);
-    
-    // Emit error event
-    this.eventBus.emit('plugin:error', {
+  // Show notification to user using Obsidian's Notice API
+  if (error.message) {
+    new Notice(`${PLUGIN_NAME} error: ${error.message}`);
+  }
+  
+  // Emit error event for components that need to react
+  if (plugin.eventBus) {
+    plugin.eventBus.emit('plugin:error', {
       source,
       error,
       timestamp: Date.now()
     });
   }
-  
-  /**
-   * Create an error wrapper for a function
-   * This wraps a function in a try/catch block and handles any errors
-   */
-  public wrapFunction<T extends (...args: any[]) => any>(
-    source: string,
-    fn: T
-  ): (...args: Parameters<T>) => Promise<ReturnType<T>> {
-    return async (...args: Parameters<T>): Promise<ReturnType<T>> => {
-      try {
-        const result = await fn(...args);
-        return result;
-      } catch (error) {
-        this.handleError(source, error instanceof Error ? error : new Error(String(error)));
-        throw error;
-      }
-    };
-  }
 }
 
 /**
- * Logger class for consistent logging
+ * Wrap a function with error handling
+ * @param source Source identifier for error context
+ * @param fn Function to wrap
+ * @param plugin Plugin instance for notifications
+ * @returns Wrapped function with error handling
  */
-export class Logger {
-  private readonly prefix: string;
-  
-  /**
-   * Constructor
-   */
-  constructor(
-    private module: string,
-    private debugMode: boolean = false
-  ) {
-    this.prefix = `[Chatsidian:${module}]`;
-  }
-  
-  /**
-   * Log a debug message (only in debug mode)
-   */
-  public debug(...args: any[]): void {
-    if (this.debugMode) {
-      console.debug(this.prefix, ...args);
+export function withErrorHandling<T extends (...args: any[]) => Promise<any>>(
+  source: string,
+  fn: T,
+  plugin: ChatsidianPlugin
+): (...args: Parameters<T>) => Promise<ReturnType<T>> {
+  return async (...args: Parameters<T>): Promise<ReturnType<T>> => {
+    try {
+      return await fn(...args);
+    } catch (error) {
+      handleError(
+        source, 
+        error instanceof Error ? error : new Error(String(error)), 
+        plugin
+      );
+      throw error;
     }
-  }
-  
-  /**
-   * Log an info message
-   */
-  public info(...args: any[]): void {
-    console.log(this.prefix, ...args);
-  }
-  
-  /**
-   * Log a warning message
-   */
-  public warn(...args: any[]): void {
-    console.warn(this.prefix, ...args);
-  }
-  
-  /**
-   * Log an error message
-   */
-  public error(...args: any[]): void {
-    console.error(this.prefix, ...args);
-  }
-  
-  /**
-   * Create a child logger with a sub-module name
-   */
-  public child(subModule: string): Logger {
-    return new Logger(`${this.module}:${subModule}`, this.debugMode);
-  }
+  };
 }
 
 /**
- * Update main plugin class to use error handler and logger
+ * Add debug logging to Obsidian plugin
+ */
+export function addLogging(plugin: ChatsidianPlugin): void {
+  // Store original methods
+  const originalOnload = plugin.onload.bind(plugin);
+  const originalOnunload = plugin.onunload.bind(plugin);
+  
+  // Override onload with logging
+  plugin.onload = async () => {
+    console.log(`[${PLUGIN_NAME}] Loading plugin...`);
+    const startTime = performance.now();
+    
+    try {
+      await originalOnload();
+      const loadTime = Math.round(performance.now() - startTime);
+      console.log(`[${PLUGIN_NAME}] Plugin loaded in ${loadTime}ms`);
+    } catch (error) {
+      console.error(`[${PLUGIN_NAME}] Failed to load plugin:`, error);
+      new Notice(`${PLUGIN_NAME} failed to load: ${error.message || 'Unknown error'}`);
+      throw error;
+    }
+  };
+  
+  // Override onunload with logging
+  plugin.onunload = async () => {
+    console.log(`[${PLUGIN_NAME}] Unloading plugin...`);
+    try {
+      await originalOnunload();
+      console.log(`[${PLUGIN_NAME}] Plugin unloaded successfully`);
+    } catch (error) {
+      console.error(`[${PLUGIN_NAME}] Error during unload:`, error);
+      throw error;
+    }
+  };
+  
+  // Register for uncaught errors in main thread
+  window.addEventListener('error', (event) => {
+    if (event.error && event.filename?.includes('chatsidian')) {
+      handleError('uncaught', event.error, plugin);
+    }
+  });
+}
+
+/**
+ * Updated main plugin class with error handling
  */
 export default class ChatsidianPlugin extends Plugin {
   // Existing properties...
   
   /**
-   * Error handler
-   */
-  public errorHandler: ErrorHandler;
-  
-  /**
-   * Logger
-   */
-  public logger: Logger;
-  
-  /**
-   * Plugin initialization
-   */
-  async onload(): Promise<void> {
-    // Initialize event bus first
-    this.eventBus = new EventBus();
-    
-    // Create error handler and logger
-    this.errorHandler = new ErrorHandler(this.eventBus);
-    this.logger = new Logger('main', this.debugMode);
-    
-    this.logger.info('Initializing plugin');
-    
-    try {
-      // Rest of initialization code as before...
-      await this.initializeCore();
-      await this.initializeProviders();
-      this.registerCommands();
-      this.registerViews();
-      this.registerEventListeners();
-      this.addSettingTab(new ChatsidianSettingTab(this.app, this));
-      
-      this.logger.info('Plugin loaded successfully');
-    } catch (error) {
-      this.errorHandler.handleError('onload', error instanceof Error ? error : new Error(String(error)));
-      this.logger.error('Failed to load plugin:', error);
-    }
-  }
-  
-  /**
    * Get debug mode setting
    */
-  private get debugMode(): boolean {
+  public get isDebugMode(): boolean {
     return this.settings?.getSettings()?.debugMode ?? false;
   }
+  
+  /**
+   * Handle plugin errors
+   */
+  public handleError(source: string, error: Error): void {
+    handleError(source, error, this);
+  }
+  
+  /**
+   * Log message with plugin prefix
+   */
+  public log(message: string, ...args: any[]): void {
+    console.log(`[${PLUGIN_NAME}] ${message}`, ...args);
+  }
+  
+  /**
+   * Log debug message (only in debug mode)
+   */
+  public debug(message: string, ...args: any[]): void {
+    if (this.isDebugMode) {
+      console.debug(`[${PLUGIN_NAME}:debug] ${message}`, ...args);
+    }
+  }
+}
 }
 ```
 
@@ -914,16 +1178,21 @@ describe('ChatsidianPlugin Lifecycle', () => {
     // Initialize plugin
     await plugin.onload();
     
-    // Spy on cleanup methods
-    const unregisterEventListenersSpy = jest.spyOn(plugin as any, 'unregisterEventListeners');
-    const closeViewsSpy = jest.spyOn(plugin as any, 'closeViews');
+    // Spy on Obsidian's Component unload method to ensure it's called
+    const superUnloadSpy = jest.spyOn(Plugin.prototype, 'unload');
+    
+    // Mock workspace detachLeavesOfType method
+    mockApp.workspace.detachLeavesOfType = jest.fn();
     
     // Call onunload
     await plugin.onunload();
     
-    // Verify cleanup methods were called
-    expect(unregisterEventListenersSpy).toHaveBeenCalled();
-    expect(closeViewsSpy).toHaveBeenCalled();
+    // Verify super.unload was called to handle Component lifecycle
+    expect(superUnloadSpy).toHaveBeenCalled();
+    
+    // Verify views were properly detached using Obsidian APIs
+    expect(mockApp.workspace.detachLeavesOfType).toHaveBeenCalledWith(VIEW_TYPE_CHAT);
+    expect(mockApp.workspace.detachLeavesOfType).toHaveBeenCalledWith('chatsidian-sidebar');
   });
   
   it('should create plugin folders if they do not exist', async () => {
@@ -1261,3 +1530,281 @@ The main.ts file integrates the following components developed in previous micro
 
 This integration completes the core infrastructure and sets the stage for the next phases of development.
 
+
+
+## Updated Version Management and Migrations
+
+To better align with Obsidian's patterns, here's an improved implementation of the version management and migrations functionality:
+
+```typescript
+/**
+ * Check for version changes and perform migrations if needed
+ * Handle using Obsidian's built-in data persistence methods
+ */
+private async handleVersionChanges(): Promise<void> {
+  const currentVersion = this.manifest.version;
+  const previousData = await this.loadData() || {}; 
+  const savedVersion = previousData.pluginVersion;
+  
+  // Debug logging
+  this.debug(`Plugin version check: current=${currentVersion}, saved=${savedVersion || 'none'}`);
+  
+  if (currentVersion !== savedVersion) {
+    console.log(`${PLUGIN_NAME} updated from ${savedVersion || 'none'} to ${currentVersion}`);
+    
+    if (!savedVersion) {
+      // First install - no migration needed
+      new Notice(`${PLUGIN_NAME} ${currentVersion} installed successfully!`);
+      
+    } else if (this.isVersionNewer(currentVersion, savedVersion)) {
+      // Upgrade case - might need migrations
+      new Notice(`${PLUGIN_NAME} updated to version ${currentVersion}`);
+      
+      // Run version-specific migrations
+      await this.runMigrations(savedVersion, currentVersion);
+    } else {
+      // Downgrade case - handle with caution
+      console.warn(`${PLUGIN_NAME} downgraded from ${savedVersion} to ${currentVersion}`);
+      new Notice(`${PLUGIN_NAME} downgraded to version ${currentVersion}. Some features may not work correctly.`);
+    }
+    
+    // Update stored version using Obsidian's saveData
+    const updatedData = {...previousData, pluginVersion: currentVersion};
+    await this.saveData(updatedData);
+  }
+}
+
+/**
+ * Run version-specific migrations
+ */
+private async runMigrations(fromVersion: string, toVersion: string): Promise<void> {
+  // Use Obsidian's Notice for user-facing information
+  new Notice(`Migrating ${PLUGIN_NAME} data from v${fromVersion} to v${toVersion}...`);
+  
+  try {
+    // Register migration handlers based on version ranges
+    const migrations: Array<{minVersion: string; maxVersion: string; handler: () => Promise<void>}> = [
+      {
+        minVersion: '0.0.1',
+        maxVersion: '0.9.9',
+        handler: () => this.migrateFromPreV1()
+      },
+      {
+        minVersion: '1.0.0',
+        maxVersion: '1.9.9',
+        handler: () => this.migrateV1toV2()
+      }
+    ];
+    
+    // Run applicable migrations
+    for (const migration of migrations) {
+      if (this.isVersionInRange(fromVersion, migration.minVersion, migration.maxVersion)) {
+        console.log(`Running migration: ${migration.minVersion}-${migration.maxVersion}`);
+        await migration.handler();
+      }
+    }
+    
+    // Migration complete
+    console.log(`${PLUGIN_NAME} migration completed successfully`);
+  } catch (error) {
+    // Handle migration errors using Obsidian's Notice API
+    console.error(`Migration error:`, error);
+    new Notice(`Migration error: ${error.message}. Please check the console for details.`);
+  }
+}
+
+/**
+ * Check if version a is newer than version b
+ */
+private isVersionNewer(a: string, b: string): boolean {
+  const parseVersion = (v: string) => v.split('.').map(n => parseInt(n, 10) || 0);
+  
+  const va = parseVersion(a);
+  const vb = parseVersion(b);
+  
+  for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+    const na = i < va.length ? va[i] : 0;
+    const nb = i < vb.length ? vb[i] : 0;
+    if (na > nb) return true;
+    if (na < nb) return false;
+  }
+  
+  return false; // Versions are equal
+}
+
+/**
+ * Check if version is within a range (inclusive)
+ */
+private isVersionInRange(version: string, minVersion: string, maxVersion: string): boolean {
+  return !this.isVersionNewer(minVersion, version) && 
+         !this.isVersionNewer(version, maxVersion);
+}
+
+/**
+ * Migrate from pre-v1 versions
+ */
+private async migrateFromPreV1(): Promise<void> {
+  console.log('Running pre-v1 migration...');
+  
+  // Migrate settings
+  const oldSettings = await this.loadData();
+  
+  // Example migration: convert old settings format to new format
+  if (oldSettings && oldSettings.apiKeys) {
+    const newSettings = {
+      provider: oldSettings.defaultProvider || 'anthropic',
+      apiKeys: {
+        ...oldSettings.apiKeys
+      },
+      // Add new settings with defaults
+      conversation: {
+        defaultModel: oldSettings.defaultModel || 'claude-3-haiku',
+        saveToVault: true
+      }
+    };
+    
+    // Save using Obsidian's data persistence
+    await this.saveData(newSettings);
+    console.log('Settings migrated successfully');
+  }
+  
+  // Migrate conversation files if needed
+  try {
+    const conversationsFolder = this.settings.getConversationsFolderPath();
+    const files = await this.app.vault.adapter.list(conversationsFolder);
+    
+    if (files && files.files) {
+      for (const filePath of files.files) {
+        if (filePath.endsWith('.json')) {
+          // Read conversation file
+          const content = await this.app.vault.adapter.read(filePath);
+          const conversation = JSON.parse(content);
+          
+          // Apply migration changes...
+          // For example, add metadata field if missing
+          if (!conversation.metadata) {
+            conversation.metadata = {
+              version: '1.0.0',
+              migratedAt: Date.now(),
+              provider: oldSettings.defaultProvider || 'anthropic',
+              model: conversation.model || oldSettings.defaultModel || 'claude-3-haiku'
+            };
+            
+            // Write updated conversation back to file
+            await this.app.vault.adapter.write(
+              filePath,
+              JSON.stringify(conversation, null, 2)
+            );
+            console.log(`Migrated conversation file: ${filePath}`);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error migrating conversation files:', error);
+    new Notice('Error migrating conversation files. Some files may need manual updates.');
+  }
+}
+
+/**
+ * Migrate from v1 to v2
+ */
+private async migrateV1toV2(): Promise<void> {
+  console.log('Running v1 to v2 migration...');
+  
+  // Example: Convert conversation files from JSON to markdown
+  try {
+    const conversationsFolder = this.settings.getConversationsFolderPath();
+    const files = await this.app.vault.adapter.list(conversationsFolder);
+    
+    if (files && files.files) {
+      // Process in batches to avoid overwhelming Obsidian's API
+      const jsonFiles = files.files.filter(file => file.endsWith('.json'));
+      const totalFiles = jsonFiles.length;
+      let processedFiles = 0;
+      
+      // Show progress to user using Obsidian's Notice API
+      if (totalFiles > 0) {
+        new Notice(`Converting ${totalFiles} conversation files to markdown format...`);
+      }
+      
+      // Process files in batches of 10
+      for (let i = 0; i < jsonFiles.length; i += 10) {
+        const batch = jsonFiles.slice(i, i + 10);
+        
+        // Process batch in parallel
+        await Promise.all(batch.map(async (filePath) => {
+          try {
+            // Read JSON file
+            const content = await this.app.vault.adapter.read(filePath);
+            const conversation = JSON.parse(content);
+            
+            // Convert to markdown
+            const mdContent = this.convertConversationToMarkdown(conversation);
+            
+            // Create new markdown file
+            const mdFilePath = filePath.replace('.json', '.md');
+            await this.app.vault.adapter.write(mdFilePath, mdContent);
+            
+            // Delete old JSON file after successful conversion
+            // Only if the markdown file was created successfully
+            if (await this.app.vault.adapter.exists(mdFilePath)) {
+              await this.app.vault.adapter.remove(filePath);
+            }
+            
+            processedFiles++;
+          } catch (error) {
+            console.error(`Error migrating file ${filePath}:`, error);
+          }
+        }));
+        
+        // Update progress every batch
+        if (processedFiles > 0) {
+          new Notice(`Converted ${processedFiles}/${totalFiles} files...`);
+        }
+      }
+      
+      // Final status
+      if (processedFiles > 0) {
+        new Notice(`Migration complete: ${processedFiles}/${totalFiles} files converted to markdown format.`);
+      }
+    }
+  } catch (error) {
+    console.error('Error during migration:', error);
+    new Notice('Error migrating files: ' + error.message);
+  }
+}
+
+/**
+ * Convert conversation to markdown format
+ */
+private convertConversationToMarkdown(conversation: any): string {
+  if (!conversation) return '';
+  
+  // Create frontmatter
+  const frontmatter = [
+    '---',
+    `title: ${conversation.title || 'Untitled Conversation'}`,
+    `date: ${new Date(conversation.createdAt).toISOString().split('T')[0]}`,
+    `updated: ${new Date(conversation.updatedAt).toISOString().split('T')[0]}`,
+    `tags: ${conversation.metadata?.tags ? `[${conversation.metadata.tags.join(', ')}]` : '[]'}`,
+    `model: ${conversation.metadata?.model || 'unknown'}`,
+    `provider: ${conversation.metadata?.provider || 'unknown'}`,
+    '---',
+    ''
+  ].join('\n');
+  
+  // Add conversation content
+  let content = `# ${conversation.title || 'Untitled Conversation'}\n\n`;
+  
+  // Add messages
+  if (Array.isArray(conversation.messages)) {
+    for (const message of conversation.messages) {
+      const role = message.role === 'user' ? 'User' : 'Assistant';
+      content += `## ${role}\n\n${message.content}\n\n`;
+    }
+  }
+  
+  return frontmatter + content;
+}
+```
