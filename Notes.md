@@ -1,0 +1,4 @@
+- For paletteCommander I think maybe it just skips the list and just as part of the execution schema we interpolate all commands
+- Need create a separate doc for phase 2 related to each BCP agent and make it review the claudesidian implementation for guidance
+  - need to make sure we have in the messages a tool use animation/accordion similar to claudes
+  - we probably want to create an obsidian facade to abstract all the obsidian operations
