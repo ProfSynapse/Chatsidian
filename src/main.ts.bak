@@ -1,0 +1,141 @@
+/**
+ * Chatsidian Plugin - Main Entry Point
+ * 
+ * This file serves as the main entry point for the Chatsidian plugin.
+ * It initializes the plugin, registers commands, and manages the plugin lifecycle.
+ * 
+ * The plugin provides a native chat interface within Obsidian, leveraging the
+ * Model Context Protocol (MCP) to enable AI assistants to perform actions within the vault.
+ * 
+ * @file This file defines the ChatsidianPlugin class that extends Obsidian's Plugin class.
+ * @author Your Name
+ * @version 0.1.0
+ */
+
+import { App, Plugin } from 'obsidian';
+import { EventBus } from './core/EventBus';
+import { EventBusFactory } from './core/EventBusFactory';
+import { SettingsManager } from './core/SettingsManager';
+import { SettingsService } from './services/SettingsService';
+import { StorageService } from './services/StorageService';
+import { ProviderService } from './services/ProviderService';
+
+/**
+ * Main plugin class for Chatsidian.
+ * Handles plugin initialization, command registration, and lifecycle management.
+ */
+export default class ChatsidianPlugin extends Plugin {
+  /**
+   * Settings manager instance
+   */
+  settings: SettingsManager;
+
+  /**
+   * Event bus for plugin-wide events
+   */
+  eventBus: EventBus;
+
+  /**
+   * Settings service for managing settings
+   */
+  settingsService: SettingsService;
+  
+  /**
+   * Storage service for managing conversations
+   */
+  storageService: StorageService;
+  
+  /**
+   * Provider service for managing AI providers and models
+   */
+  providerService: ProviderService;
+
+  /**
+   * Called when the plugin is loaded.
+   * Initializes settings, registers commands, and sets up event listeners.
+   */
+  async onload() {
+    console.log('Loading Chatsidian plugin');
+    
+    // Initialize event bus
+    this.eventBus = EventBusFactory.createBasicEventBus();
+    
+    // Initialize settings service
+    this.settingsService = new SettingsService(this.app, this, this.eventBus);
+    this.settings = await this.settingsService.initialize(await this.loadData());
+    
+    // Initialize storage service
+    this.storageService = new StorageService(this.app, this, this.eventBus, this.settings);
+    await this.storageService.initialize();
+    
+    // Initialize provider service
+    this.providerService = new ProviderService(this.app, this.eventBus, this.settingsService);
+    await this.providerService.initialize();
+    
+    // Register event listeners
+    this.registerEventListeners();
+    
+    // Add command to open chat
+    this.addCommand({
+      id: 'open-chatsidian',
+      name: 'Open Chatsidian',
+      callback: () => {
+        console.log('Chat interface not yet implemented');
+      }
+    });
+    
+    // Add ribbon icon
+    this.addRibbonIcon('message-square', 'Chatsidian', () => {
+      console.log('Chatsidian ribbon icon clicked');
+      // Will later open the chat interface
+    });
+    
+    // Emit plugin loaded event
+    this.eventBus.emit('plugin:loaded', undefined);
+    
+    console.log('Chatsidian plugin loaded');
+  }
+  
+  /**
+   * Called when the plugin is unloaded.
+   * Cleans up resources and event listeners.
+   */
+  async onunload() {
+    console.log('Unloading Chatsidian plugin');
+    
+    // Emit plugin unloaded event
+    this.eventBus.emit('plugin:unloaded', undefined);
+    
+    // Clear event bus
+    this.eventBus.clear();
+  }
+  
+  /**
+   * Register event listeners for the plugin.
+   */
+  private registerEventListeners() {
+    // Listen for settings updates
+    this.eventBus.on('settings:updated', (data) => {
+      console.log('Settings updated:', data.changedKeys);
+      
+      // Handle specific setting changes
+      if (data.changedKeys.includes('debugMode')) {
+        const debugMode = data.currentSettings.debugMode;
+        console.log(`Debug mode ${debugMode ? 'enabled' : 'disabled'}`);
+        
+        // Toggle debug logging if needed
+        if (debugMode) {
+          // Enable debug logging
+          console.log('Debug mode enabled - event logging will be more verbose');
+          
+          // Instead of replacing the event bus, we'll wrap future events with logging
+          const originalEmit = this.eventBus.emit;
+          this.eventBus.emit = (event: string, data?: any) => {
+            console.log(`[EventBus] Emitting event '${event}'`, data);
+            originalEmit.call(this.eventBus, event, data);
+          };
+        }
+      }
+    });
+  }
+}
