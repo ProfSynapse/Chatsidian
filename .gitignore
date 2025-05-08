@@ -7,3 +7,6 @@ data.json
 coverage/
 .idea/
 .vscode/
+.env
+setup.test.js
+setup.test.ts

@@ -9,10 +9,13 @@
  */
 
 // Import from obsidian in production, but use mocks in tests
-import { App, PluginSettingTab, Setting } from '../utils/obsidian-imports';
+import { App, Plugin, PluginSettingTab, Setting } from '../utils/obsidian-imports';
 import { ChatsidianSettings, DEFAULT_SETTINGS, SettingsUtils } from '../models/Settings';
 import { EventBus } from './EventBus';
-import { COMMON_MODELS } from '../models/Provider';
+import { ModelsLoader } from '../providers/ModelsLoader';
+import { ModelSelectorComponent } from '../ui/models/ModelSelectorComponent';
+import { ProviderSettings } from '../ui/models/ProviderSettings';
+import { AgentDefinition } from '../agents/AgentTypes';
 
 /**
  * SettingsManager class for managing plugin settings.
@@ -175,6 +178,7 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     containerEl.empty();
     
     this.createApiSettings(containerEl, settings);
+    this.createModelAndAgentSettings(containerEl, settings);
     this.createConversationSettings(containerEl, settings);
     this.createUiSettings(containerEl, settings);
     this.createAdvancedSettings(containerEl, settings);
@@ -191,14 +195,14 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('AI Provider')
       .setDesc('Select which AI service to use')
-      .addDropdown(dropdown => dropdown
+      .addDropdown((dropdown: any) => dropdown
         .addOption('anthropic', 'Anthropic (Claude)')
         .addOption('openai', 'OpenAI (GPT)')
         .addOption('openrouter', 'OpenRouter')
         .addOption('google', 'Google AI')
         .addOption('custom', 'Custom API')
         .setValue(settings.provider)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ 
             provider: value as ChatsidianSettings['provider'] 
           });
@@ -207,10 +211,10 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('API Key')
       .setDesc('Your API key for the selected provider')
-      .addText(text => text
+      .addText((text: any) => text
         .setPlaceholder('Enter your API key')
         .setValue(settings.apiKey)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.setApiKey(value);
         }));
     
@@ -219,21 +223,22 @@ export class ChatsidianSettingTab extends PluginSettingTab {
       new Setting(containerEl)
         .setName('API Endpoint')
         .setDesc('Custom API endpoint URL')
-        .addText(text => text
+        .addText((text: any) => text
           .setPlaceholder('https://api.example.com/v1')
           .setValue(settings.apiEndpoint || '')
-          .onChange(async (value) => {
+          .onChange(async (value: any) => {
             await this.settings.updateSettings({ apiEndpoint: value });
           }));
     }
     
-    // Get models for current provider
-    const providerModels = COMMON_MODELS.filter(m => m.provider === settings.provider);
+    // Get models for current provider from the centralized models.yaml
+    const modelsLoader = ModelsLoader.getInstance();
+    const providerModels = modelsLoader.getModelsForProvider(settings.provider);
     
     new Setting(containerEl)
       .setName('Model')
       .setDesc('Select which model to use')
-      .addDropdown(dropdown => {
+      .addDropdown((dropdown: any) => {
         // Add common models for current provider
         providerModels.forEach(model => {
           dropdown.addOption(model.id, model.name);
@@ -244,7 +249,7 @@ export class ChatsidianSettingTab extends PluginSettingTab {
         
         return dropdown
           .setValue(settings.model)
-          .onChange(async (value) => {
+          .onChange(async (value: any) => {
             await this.settings.updateSettings({ model: value });
           });
       });
@@ -254,10 +259,10 @@ export class ChatsidianSettingTab extends PluginSettingTab {
       new Setting(containerEl)
         .setName('Custom Model ID')
         .setDesc('Enter a custom model identifier')
-        .addText(text => text
+        .addText((text: any) => text
           .setPlaceholder('model-id')
           .setValue(settings.model)
-          .onChange(async (value) => {
+          .onChange(async (value: any) => {
             await this.settings.updateSettings({ model: value });
           }));
     }
@@ -265,7 +270,7 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Test Connection')
       .setDesc('Test your API connection')
-      .addButton(button => button
+      .addButton((button: any) => button
         .setButtonText('Test')
         .onClick(async () => {
           button.setButtonText('Testing...');
@@ -308,34 +313,34 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Conversations Folder')
       .setDesc('Folder where conversations are stored')
-      .addText(text => text
+      .addText((text: any) => text
         .setPlaceholder('folder/path')
         .setValue(settings.conversationsFolder)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ conversationsFolder: value });
         }));
     
     new Setting(containerEl)
       .setName('Max Messages')
       .setDesc('Maximum number of messages to keep in memory')
-      .addSlider(slider => slider
+      .addSlider((slider: any) => slider
         .setLimits(10, 500, 10)
         .setValue(settings.maxMessages)
         .setDynamicTooltip()
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ maxMessages: value });
         }));
     
     new Setting(containerEl)
       .setName('Default System Prompt')
       .setDesc('Default system prompt to use for new conversations')
-      .addTextArea(textarea => textarea
+      .addTextArea((textarea: any) => textarea
         .setPlaceholder('Enter default system prompt')
         .setValue(settings.defaultSystemPrompt)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ defaultSystemPrompt: value });
         }))
-      .addExtraButton(button => button
+      .addExtraButton((button: any) => button
         .setIcon('reset')
         .setTooltip('Reset to default')
         .onClick(async () => {
@@ -344,6 +349,158 @@ export class ChatsidianSettingTab extends PluginSettingTab {
           });
           this.display(); // Refresh UI
         }));
+  }
+  
+  /**
+   * Create model and agent settings section.
+   * @param containerEl Container element
+   * @param settings Current settings
+   */
+  private createModelAndAgentSettings(containerEl: HTMLElement, settings: ChatsidianSettings): void {
+    containerEl.createEl('h2', { text: 'Models & Agents' });
+    
+    // Create container for model selector component
+    const modelSelectorContainer = containerEl.createDiv({ cls: 'chatsidian-settings-model-selector' });
+    
+    // Create model selector component
+    if (this.plugin.providerService && this.plugin.agentSystem) {
+      // Create a local event bus for the model selector component
+      const localEventBus = new EventBus();
+      
+      // Create model selector component
+      new ModelSelectorComponent(
+        modelSelectorContainer,
+        localEventBus,
+        this.plugin.providerService,
+        this.plugin.settingsService,
+        this.plugin.agentSystem,
+        this.app,
+        {
+          showProviderSelector: true,
+          showModelCapabilities: true,
+          filterByProvider: true,
+          filterByToolSupport: false,
+          showBuiltInAgents: true,
+          showCustomAgents: true,
+          allowCreatingAgents: true,
+          allowEditingAgents: true,
+          allowDeletingAgents: true,
+          showSettingsButton: false
+        }
+      );
+      
+      // Listen for model and agent selection events
+      localEventBus.on('model-selector:model-selected', async (data: any) => {
+        if (data.model) {
+          await this.settings.updateSettings({
+            provider: data.model.provider,
+            model: data.model.id
+          });
+        }
+      });
+      
+      localEventBus.on('agent-selector:agent-selected', async (data: any) => {
+        if (data.agent) {
+          await this.settings.updateSettings({
+            defaultAgentId: data.agent.id
+          });
+        }
+      });
+    } else {
+      modelSelectorContainer.createEl('p', { 
+        text: 'Model and agent selection components not available. Please reload the plugin.' 
+      });
+    }
+    
+    // Provider-specific settings
+    containerEl.createEl('h3', { text: 'Provider Settings' });
+    const providerSettingsContainer = containerEl.createDiv({ cls: 'chatsidian-settings-provider-settings' });
+    
+    if (this.plugin.providerService) {
+      // Create provider settings component
+      const providerSettings = new ProviderSettings(
+        providerSettingsContainer,
+        this.plugin.eventBus,
+        this.plugin.settingsService,
+        this.plugin.providerService,
+        settings.provider
+      );
+    } else {
+      providerSettingsContainer.createEl('p', { 
+        text: 'Provider settings component not available. Please reload the plugin.' 
+      });
+    }
+    
+    // Agent management
+    containerEl.createEl('h3', { text: 'Agent Management' });
+    const agentManagementContainer = containerEl.createDiv({ cls: 'chatsidian-settings-agent-management' });
+    
+    if (this.plugin.agentSystem) {
+      // Create agent management UI
+      const agentSystem = this.plugin.agentSystem;
+      
+      // List custom agents
+      const customAgents = settings.customAgents || [];
+      
+      if (customAgents.length > 0) {
+        const agentList = agentManagementContainer.createEl('ul', { cls: 'chatsidian-agent-list' });
+        
+        customAgents.forEach((agent: AgentDefinition) => {
+          const agentItem = agentList.createEl('li', { cls: 'chatsidian-agent-item' });
+          
+          agentItem.createEl('span', { text: agent.name, cls: 'chatsidian-agent-name' });
+          
+          const agentActions = agentItem.createDiv({ cls: 'chatsidian-agent-actions' });
+          
+          // Edit button
+          const editButton = agentActions.createEl('button', { text: 'Edit', cls: 'chatsidian-agent-edit-button' });
+          editButton.addEventListener('click', () => {
+            // Open agent editor (placeholder for now)
+            new this.plugin.app.Notice(`Editing agent ${agent.name} (to be implemented)`);
+          });
+          
+          // Delete button
+          const deleteButton = agentActions.createEl('button', { text: 'Delete', cls: 'chatsidian-agent-delete-button' });
+          deleteButton.addEventListener('click', async () => {
+            const confirmed = await this.plugin.app.modal.confirm(
+              `Delete Agent`,
+              `Are you sure you want to delete the agent "${agent.name}"? This action cannot be undone.`
+            );
+            
+            if (confirmed) {
+              // Remove agent from custom agents
+              const updatedAgents = customAgents.filter((a: AgentDefinition) => a.id !== agent.id);
+              await this.settings.updateSettings({ customAgents: updatedAgents });
+              
+              // Delete from agent system
+              await agentSystem.deleteCustomAgentDefinition(agent.id);
+              
+              // Refresh UI
+              this.display();
+              
+              new this.plugin.app.Notice(`Agent "${agent.name}" deleted`);
+            }
+          });
+        });
+      } else {
+        agentManagementContainer.createEl('p', { text: 'No custom agents created yet.' });
+      }
+      
+      // Create new agent button
+      const createAgentButton = agentManagementContainer.createEl('button', { 
+        text: 'Create New Agent', 
+        cls: 'chatsidian-create-agent-button' 
+      });
+      
+      createAgentButton.addEventListener('click', () => {
+        // Open agent creation UI (placeholder for now)
+        new this.plugin.app.Notice('Creating new agent (to be implemented)');
+      });
+    } else {
+      agentManagementContainer.createEl('p', { 
+        text: 'Agent management not available. Please reload the plugin.' 
+      });
+    }
   }
   
   /**
@@ -357,12 +514,12 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Theme')
       .setDesc('Choose the theme for the chat interface')
-      .addDropdown(dropdown => dropdown
+      .addDropdown((dropdown: any) => dropdown
         .addOption('light', 'Light')
         .addOption('dark', 'Dark')
         .addOption('system', 'Use System Theme')
         .setValue(settings.theme)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ 
             theme: value as ChatsidianSettings['theme'] 
           });
@@ -371,20 +528,20 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Font Size')
       .setDesc('Font size for the chat interface')
-      .addSlider(slider => slider
+      .addSlider((slider: any) => slider
         .setLimits(10, 24, 1)
         .setValue(settings.fontSize)
         .setDynamicTooltip()
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ fontSize: value });
         }));
     
     new Setting(containerEl)
       .setName('Show Timestamps')
       .setDesc('Show message timestamps in the chat interface')
-      .addToggle(toggle => toggle
+      .addToggle((toggle: any) => toggle
         .setValue(settings.showTimestamps)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ showTimestamps: value });
         }));
   }
@@ -400,41 +557,41 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Debug Mode')
       .setDesc('Enable debug logging')
-      .addToggle(toggle => toggle
+      .addToggle((toggle: any) => toggle
         .setValue(settings.debugMode)
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ debugMode: value });
         }));
     
     new Setting(containerEl)
       .setName('Auto-load BCPs')
       .setDesc('Bounded Context Packs to load automatically')
-      .addTextArea(textarea => textarea
+      .addTextArea((textarea: any) => textarea
         .setPlaceholder('System,Vault,Editor')
         .setValue(settings.autoLoadBCPs.join(','))
-        .onChange(async (value) => {
-          const bcps = value.split(',').map(s => s.trim()).filter(s => s);
+          .onChange(async (value: any) => {
+      const bcps = value.split(',').map((s: any) => s.trim()).filter((s: any) => s);
           await this.settings.updateSettings({ autoLoadBCPs: bcps });
         }));
     
     new Setting(containerEl)
       .setName('Default Temperature')
       .setDesc('Default temperature for AI requests (0.0 - 1.0)')
-      .addSlider(slider => slider
+      .addSlider((slider: any) => slider
         .setLimits(0, 1, 0.1)
         .setValue(settings.defaultTemperature)
         .setDynamicTooltip()
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           await this.settings.updateSettings({ defaultTemperature: value });
         }));
     
     new Setting(containerEl)
       .setName('Default Max Tokens')
       .setDesc('Default maximum tokens for AI responses')
-      .addText(text => text
+      .addText((text: any) => text
         .setPlaceholder('4000')
         .setValue(settings.defaultMaxTokens.toString())
-        .onChange(async (value) => {
+          .onChange(async (value: any) => {
           const tokens = parseInt(value);
           if (!isNaN(tokens)) {
             await this.settings.updateSettings({ defaultMaxTokens: tokens });
@@ -444,7 +601,7 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Reset All Settings')
       .setDesc('Reset all settings to their default values')
-      .addButton(button => button
+      .addButton((button: any) => button
         .setButtonText('Reset All')
         .setWarning()
         .onClick(async () => {

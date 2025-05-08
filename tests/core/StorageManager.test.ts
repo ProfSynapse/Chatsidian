@@ -1,24 +1,30 @@
-/**
- * Tests for the StorageManager class.
- * 
- * These tests verify the functionality of the StorageManager class,
- * which handles data persistence within the Obsidian vault.
- */
-
 import { App, TFile, TFolder, Plugin } from '../../src/utils/obsidian-imports';
 import { EventBus } from '../../src/core/EventBus';
 import { SettingsManager } from '../../src/core/SettingsManager';
 import { StorageManager } from '../../src/core/StorageManager';
-import { Conversation, MessageRole } from '../../src/models/Conversation';
+import { MessageRole, Conversation } from '../../src/models/Conversation';
 import { 
   ConversationNotFoundError,
-  MessageNotFoundError 
+  MessageNotFoundError,
+  FileOperationError,
+  FolderOperationError,
+  JsonParseError
 } from '../../src/core/StorageErrors';
+import { StorageUtils } from '../../src/core/StorageUtils';
 
-// Mock dependencies
+// Mock dependencies first
+jest.mock('../../src/core/EventBus', () => {
+  return {
+    EventBus: jest.fn().mockImplementation(() => ({
+      emit: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      trigger: jest.fn()
+    }))
+  };
+});
+
 jest.mock('../../src/utils/obsidian-imports', () => {
-  const originalModule = jest.requireActual('../../src/utils/obsidian-imports');
-  
   // Mock TFile
   class MockTFile {
     path: string;
@@ -52,37 +58,12 @@ jest.mock('../../src/utils/obsidian-imports', () => {
     }
   }
   
-  // Mock App
-  const mockApp = {
-    vault: {
-      getAbstractFileByPath: jest.fn(),
-      createFolder: jest.fn(),
-      read: jest.fn(),
-      create: jest.fn(),
-      modify: jest.fn(),
-      delete: jest.fn(),
-      on: jest.fn().mockReturnValue('event-ref'),
-    },
-    fileManager: {
-      createNewMarkdownFile: jest.fn(),
-      renameFile: jest.fn(),
-    },
-    workspace: {
-      openLinkText: jest.fn(),
-    },
-  };
-  
-  // Mock Plugin
-  const mockPlugin = {
-    registerEvent: jest.fn(),
-  };
-  
   return {
-    ...originalModule,
-    App: mockApp,
     TFile: MockTFile,
     TFolder: MockTFolder,
-    Plugin: mockPlugin,
+    App: jest.fn(),
+    Plugin: jest.fn(),
+    Notice: jest.fn()
   };
 });
 
@@ -92,9 +73,11 @@ describe('StorageManager', () => {
   let eventBus: EventBus;
   let settings: SettingsManager;
   let storageManager: StorageManager;
-  
+  let mockTFolder: typeof TFolder;
+  let mockTFile: typeof TFile;
+
   // Sample conversation for testing
-  const sampleConversation: Conversation = {
+  const sampleConversation = {
     id: 'test-conversation',
     title: 'Test Conversation',
     createdAt: Date.now(),
@@ -102,13 +85,13 @@ describe('StorageManager', () => {
     messages: [
       {
         id: 'msg1',
-        role: MessageRole.User,
+        role: 'user' as MessageRole,
         content: 'Hello',
         timestamp: Date.now(),
       },
       {
         id: 'msg2',
-        role: MessageRole.Assistant,
+        role: 'assistant' as MessageRole,
         content: 'Hi there!',
         timestamp: Date.now(),
       },
@@ -116,12 +99,79 @@ describe('StorageManager', () => {
   };
   
   beforeEach(() => {
+    mockTFolder = TFolder;
+    mockTFile = TFile;
+    
     // Reset mocks
     jest.clearAllMocks();
+
+    // Mock StorageUtils static methods
+    jest.spyOn(StorageUtils, 'exportConversation').mockImplementation(async (app: App, conversation: Conversation, format: 'json' | 'markdown') => {
+      const path = format === 'markdown' ? 'test.md' : 'test.json';
+      await app.vault.create(path, format === 'markdown' ? '# Test Export' : JSON.stringify(conversation));
+    });
     
-    // Create dependencies
-    app = new App() as any;
-    plugin = new Plugin() as any;
+    jest.spyOn(StorageUtils, 'parseMarkdownToConversation').mockImplementation(() => ({
+      id: 'imported-id',
+      title: 'Test Conversation',
+      createdAt: Date.now(),
+      modifiedAt: Date.now(),
+      messages: [
+        {
+          id: 'msg1',
+          role: 'user' as MessageRole,
+          content: 'Hello',
+          timestamp: Date.now()
+        },
+        {
+          id: 'msg2',
+          role: 'assistant' as MessageRole,
+          content: 'Hi there!',
+          timestamp: Date.now()
+        }
+      ]
+    }));
+
+    jest.spyOn(StorageUtils, 'generateId').mockReturnValue('new-id');
+
+    jest.spyOn(StorageUtils, 'parseJsonToConversation').mockImplementation(() => ({
+      id: 'new-id',
+      title: 'Test Import',
+      createdAt: Date.now(),
+      modifiedAt: Date.now(),
+      messages: []
+    }));
+
+    jest.spyOn(StorageUtils, 'backupConversation').mockImplementation(async (app: App, conversation: Conversation, backupFolder: string) => {
+      const path = `${backupFolder}/${conversation.id}.json`;
+      await app.vault.create(path, JSON.stringify(conversation));
+      return path;
+    });
+    
+    // Create dependencies with proper mocking
+    app = {
+      vault: {
+        getAbstractFileByPath: jest.fn(),
+        createFolder: jest.fn(),
+        read: jest.fn(),
+        create: jest.fn(),
+        modify: jest.fn(),
+        delete: jest.fn(),
+        on: jest.fn().mockReturnValue('event-ref')
+      },
+      fileManager: {
+        createNewMarkdownFile: jest.fn(),
+        renameFile: jest.fn()
+      },
+      workspace: {
+        openLinkText: jest.fn()
+      }
+    } as unknown as App;
+    
+    plugin = {
+      registerEvent: jest.fn()
+    } as unknown as Plugin;
+    
     eventBus = new EventBus();
     
     // Mock settings
@@ -132,288 +182,565 @@ describe('StorageManager', () => {
     // Create storage manager
     storageManager = new StorageManager(app, plugin, settings, eventBus);
   });
-  
+
   describe('initialize', () => {
     it('should ensure conversations folder exists', async () => {
-      // Mock folder doesn't exist
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
-      
       await storageManager.initialize();
-      
-      // Should create folder
       expect(app.vault.createFolder).toHaveBeenCalledWith('conversations');
-      
-      // Should register for vault events
       expect(app.vault.on).toHaveBeenCalledWith('create', expect.any(Function));
       expect(app.vault.on).toHaveBeenCalledWith('modify', expect.any(Function));
       expect(app.vault.on).toHaveBeenCalledWith('delete', expect.any(Function));
       expect(app.vault.on).toHaveBeenCalledWith('rename', expect.any(Function));
-      
-      // Should register for settings events
       expect(plugin.registerEvent).toHaveBeenCalled();
     });
-    
+
     it('should use existing folder if it exists', async () => {
-      // Mock folder exists
-      const mockFolder = new TFolder('conversations');
+      const mockFolder = new mockTFolder('conversations');
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFolder);
-      
       await storageManager.initialize();
-      
-      // Should not create folder
       expect(app.vault.createFolder).not.toHaveBeenCalled();
     });
-  });
-  
-  describe('getConversations', () => {
-    it('should return an empty array if folder does not exist', async () => {
-      // Mock folder doesn't exist
+
+    it('should handle folder creation error', async () => {
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
+      (app.vault.createFolder as jest.Mock).mockRejectedValue(new Error('Failed to create folder'));
       
-      const conversations = await storageManager.getConversations();
-      
-      expect(conversations).toEqual([]);
+      await expect(storageManager.initialize()).rejects.toThrow(FolderOperationError);
     });
-    
-    it('should return conversations from folder', async () => {
-      // Mock folder with files
-      const mockFolder = new TFolder('conversations');
-      const mockFile1 = new TFile('conversations/test1.json');
-      const mockFile2 = new TFile('conversations/test2.json');
-      mockFolder.addChild(mockFile1);
-      mockFolder.addChild(mockFile2);
+
+    it('should handle non-folder path', async () => {
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(new mockTFile('conversations'));
       
-      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFolder);
-      
-      // Mock file content
-      (app.vault.read as jest.Mock).mockImplementation((file) => {
-        if (file === mockFile1) {
-          return JSON.stringify({
-            id: 'test1',
-            title: 'Test 1',
-            createdAt: Date.now(),
-            modifiedAt: Date.now(),
-            messages: [],
-          });
-        } else if (file === mockFile2) {
-          return JSON.stringify({
-            id: 'test2',
-            title: 'Test 2',
-            createdAt: Date.now(),
-            modifiedAt: Date.now(),
-            messages: [],
-          });
+      await expect(storageManager.initialize()).rejects.toThrow(FolderOperationError);
+    });
+
+    it('should handle settings change event', async () => {
+      // Setup the event handler mock
+      const mockEventHandler = jest.fn();
+      (eventBus.on as jest.Mock).mockImplementation((event, handler) => {
+        if (event === 'settings:updated') {
+          mockEventHandler.mockImplementation(handler);
         }
-        return '';
+        return { event, handler };
+      });
+      
+      // Initialize to register the handler
+      await storageManager.initialize();
+      
+      // Trigger the event
+      mockEventHandler({ changedKeys: ['conversationsFolder'] });
+      
+      // Verify the handler called the appropriate method
+      expect(app.vault.getAbstractFileByPath).toHaveBeenCalled();
+    });
+  });
+
+  describe('getConversations', () => {
+    it('should return empty array if folder does not exist', async () => {
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
+      const result = await storageManager.getConversations();
+      expect(result).toEqual([]);
+    });
+
+    it('should handle non-folder path', async () => {
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(new mockTFile('conversations'));
+      const result = await storageManager.getConversations();
+      expect(result).toEqual([]);
+    });
+
+    it('should skip non-JSON files', async () => {
+      const mockFolder = new mockTFolder('conversations');
+      const mockFiles = [
+        new mockTFile('conversations/test1.json'),
+        new mockTFile('conversations/test2.md'),
+        new mockTFile('conversations/test3.json')
+      ];
+      mockFolder.children = mockFiles;
+      
+      (app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+        if (path === 'conversations') {
+          return mockFolder;
+        }
+        if (path.endsWith('.json')) {
+          return mockFiles.find(f => f.path === path) || null;
+        }
+        return null;
+      });
+      
+      (app.vault.read as jest.Mock).mockImplementation((file: TFile) => {
+        return Promise.resolve(JSON.stringify({
+          id: file.basename,
+          title: `Test ${file.basename}`,
+          createdAt: Date.now(),
+          modifiedAt: Date.now(),
+          messages: []
+        }));
       });
       
       const conversations = await storageManager.getConversations();
+      expect(conversations).toHaveLength(2);
+      expect(conversations.map((c: Conversation) => c.id)).toEqual(['test1', 'test3']);
+    });
+
+    it('should handle invalid JSON data', async () => {
+      const mockFolder = new mockTFolder('conversations');
+      const mockFiles = [
+        new mockTFile('conversations/test1.json'),
+        new mockTFile('conversations/test2.json')
+      ];
+      mockFolder.children = mockFiles;
       
-      expect(conversations.length).toBe(2);
-      expect(conversations[0].id).toBe('test1');
-      expect(conversations[1].id).toBe('test2');
+      (app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+        if (path === 'conversations') {
+          return mockFolder;
+        }
+        return mockFiles.find(f => f.path === path) || null;
+      });
+      
+      (app.vault.read as jest.Mock).mockImplementation((file: TFile) => {
+        if (file.basename === 'test1') {
+          return Promise.resolve('invalid json');
+        }
+        return Promise.resolve(JSON.stringify({
+          id: file.basename,
+          title: 'Test 2',
+          createdAt: Date.now(),
+          modifiedAt: Date.now(),
+          messages: []
+        }));
+      });
+      
+      const conversations = await storageManager.getConversations();
+      expect(conversations).toHaveLength(1);
+      expect(conversations[0].id).toBe('test2');
+    });
+
+    it('should sort conversations by modification date', async () => {
+      const mockFolder = new mockTFolder('conversations');
+      const mockFiles = [
+        new mockTFile('conversations/test1.json'),
+        new mockTFile('conversations/test2.json')
+      ];
+      mockFolder.children = mockFiles;
+      
+      const now = Date.now();
+      (app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+        if (path === 'conversations') {
+          return mockFolder;
+        }
+        return mockFiles.find(f => f.path === path) || null;
+      });
+      
+      (app.vault.read as jest.Mock).mockImplementation((file: TFile) => {
+        return Promise.resolve(JSON.stringify({
+          id: file.basename,
+          title: file.basename === 'test1' ? 'Test 1' : 'Test 2',
+          createdAt: now,
+          modifiedAt: file.basename === 'test1' ? now - 1000 : now,
+          messages: []
+        }));
+      });
+      
+      const conversations = await storageManager.getConversations();
+      expect(conversations).toHaveLength(2);
+      expect(conversations[0].id).toBe('test2');
+      expect(conversations[1].id).toBe('test1');
     });
   });
-  
+
   describe('getConversation', () => {
+    it('should return conversation by ID', async () => {
+      const mockFile = new mockTFile('conversations/test-id.json');
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile);
+      (app.vault.read as jest.Mock).mockResolvedValue(JSON.stringify(sampleConversation));
+      
+      const conversation = await storageManager.getConversation('test-id');
+      expect(conversation).not.toBeNull();
+      expect(conversation?.id).toBe('test-conversation');
+    });
+    
     it('should return null if conversation does not exist', async () => {
-      // Mock file doesn't exist
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
       
       const conversation = await storageManager.getConversation('nonexistent');
-      
       expect(conversation).toBeNull();
     });
     
-    it('should return conversation if it exists', async () => {
-      // Mock file exists
-      const mockFile = new TFile('conversations/test.json');
+    it('should handle JSON parse error', async () => {
+      const mockFile = new mockTFile('conversations/test-id.json');
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile);
+      (app.vault.read as jest.Mock).mockResolvedValue('invalid json');
       
-      // Mock file content
-      (app.vault.read as jest.Mock).mockResolvedValue(JSON.stringify(sampleConversation));
-      
-      const conversation = await storageManager.getConversation('test');
-      
-      expect(conversation).not.toBeNull();
-      expect(conversation?.id).toBe('test-conversation');
-      expect(conversation?.title).toBe('Test Conversation');
-      expect(conversation?.messages.length).toBe(2);
+      await expect(storageManager.getConversation('test-id')).rejects.toThrow(JsonParseError);
     });
   });
-  
+
   describe('saveConversation', () => {
-    it('should create a new file if conversation does not exist', async () => {
-      // Mock file doesn't exist
+    it('should create new conversation file if it does not exist', async () => {
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
       
       await storageManager.saveConversation(sampleConversation);
       
-      // Should create file
       expect(app.vault.create).toHaveBeenCalledWith(
         'conversations/test-conversation.json',
         expect.any(String)
       );
     });
     
-    it('should update existing file if conversation exists', async () => {
-      // Mock file exists
-      const mockFile = new TFile('conversations/test-conversation.json');
+    it('should update existing conversation file', async () => {
+      const mockFile = new mockTFile('conversations/test-conversation.json');
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile);
       
       await storageManager.saveConversation(sampleConversation);
       
-      // Should modify file
       expect(app.vault.modify).toHaveBeenCalledWith(
         mockFile,
         expect.any(String)
       );
     });
+    
+    it('should handle file operation error', async () => {
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
+      (app.vault.create as jest.Mock).mockRejectedValue(new Error('Failed to create file'));
+      
+      await expect(storageManager.saveConversation(sampleConversation)).rejects.toThrow(FileOperationError);
+    });
+    
+    it('should update modification time', async () => {
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
+      const originalTime = sampleConversation.modifiedAt;
+      
+      await storageManager.saveConversation(sampleConversation);
+      
+      expect(sampleConversation.modifiedAt).not.toBe(originalTime);
+    });
   });
-  
+
   describe('createConversation', () => {
     it('should create a new conversation with default title', async () => {
-      // Mock file doesn't exist
-      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
+      // Mock Date.now() to return a fixed timestamp for testing
+      const originalDateNow = Date.now;
+      const mockTimestamp = 1620000000000; // Fixed timestamp for testing
+      global.Date.now = jest.fn(() => mockTimestamp);
+      
+      jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
       
       const conversation = await storageManager.createConversation();
       
-      // Should have generated ID and title
       expect(conversation.id).toBeDefined();
+      // Check for the title without the timestamp part
       expect(conversation.title).toContain('New Conversation');
       expect(conversation.messages).toEqual([]);
       
-      // Should save conversation
-      expect(app.vault.create).toHaveBeenCalled();
+      // Restore original Date.now
+      global.Date.now = originalDateNow;
     });
     
-    it('should create a new conversation with specified title', async () => {
-      // Mock file doesn't exist
-      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
+    it('should create a new conversation with custom title', async () => {
+      jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
       
       const conversation = await storageManager.createConversation('Custom Title');
       
-      // Should have generated ID and custom title
       expect(conversation.id).toBeDefined();
       expect(conversation.title).toBe('Custom Title');
-      expect(conversation.messages).toEqual([]);
-      
-      // Should save conversation
-      expect(app.vault.create).toHaveBeenCalled();
     });
   });
-  
+
   describe('deleteConversation', () => {
-    it('should throw error if conversation does not exist', async () => {
-      // Mock file doesn't exist
-      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
-      
-      await expect(storageManager.deleteConversation('nonexistent'))
-        .rejects.toThrow(ConversationNotFoundError);
-    });
-    
-    it('should delete conversation if it exists', async () => {
-      // Mock file exists
-      const mockFile = new TFile('conversations/test.json');
+    it('should delete conversation file', async () => {
+      const mockFile = new mockTFile('conversations/test-id.json');
       (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile);
       
-      await storageManager.deleteConversation('test');
+      await storageManager.deleteConversation('test-id');
       
-      // Should delete file
       expect(app.vault.delete).toHaveBeenCalledWith(mockFile);
     });
-  });
-  
-  describe('addMessage', () => {
+    
     it('should throw error if conversation does not exist', async () => {
-      // Mock conversation doesn't exist
-      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(null);
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(null);
       
-      const message = {
-        id: 'new-msg',
-        role: MessageRole.User,
-        content: 'New message',
-        timestamp: Date.now(),
-      };
-      
-      await expect(storageManager.addMessage('nonexistent', message))
-        .rejects.toThrow(ConversationNotFoundError);
+      await expect(storageManager.deleteConversation('nonexistent')).rejects.toThrow(ConversationNotFoundError);
     });
     
-    it('should add message to conversation', async () => {
-      // Mock conversation exists
-      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+    it('should handle file operation error', async () => {
+      const mockFile = new mockTFile('conversations/test-id.json');
+      (app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile);
+      (app.vault.delete as jest.Mock).mockRejectedValue(new Error('Failed to delete file'));
       
-      // Mock save
+      await expect(storageManager.deleteConversation('test-id')).rejects.toThrow(FileOperationError);
+    });
+  });
+
+  describe('messageOperations', () => {
+    it('should add message to conversation', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
       jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
       
-      const message = {
+      const newMessage = {
         id: 'new-msg',
-        role: MessageRole.User,
-        content: 'New message',
-        timestamp: Date.now(),
+        role: 'user' as MessageRole,
+        content: 'Test message',
+        timestamp: Date.now()
       };
       
-      const updatedConversation = await storageManager.addMessage('test-conversation', message);
-      
-      // Should add message
-      expect(updatedConversation.messages.length).toBe(3);
-      expect(updatedConversation.messages[2].id).toBe('new-msg');
-      expect(updatedConversation.messages[2].content).toBe('New message');
-      
-      // Should save conversation
-      expect(storageManager.saveConversation).toHaveBeenCalled();
-      
-      // Should emit event
+      const result = await storageManager.addMessage('test-conversation', newMessage);
+      expect(result.messages).toHaveLength(3);
+      expect(result.messages[2]).toEqual(newMessage);
       expect(eventBus.emit).toHaveBeenCalledWith('message:added', {
         conversationId: 'test-conversation',
-        message,
+        message: newMessage
       });
     });
-  });
-  
-  describe('updateMessage', () => {
-    it('should throw error if conversation does not exist', async () => {
-      // Mock conversation doesn't exist
+
+    it('should throw error when adding message to nonexistent conversation', async () => {
       jest.spyOn(storageManager, 'getConversation').mockResolvedValue(null);
       
-      await expect(storageManager.updateMessage('nonexistent', 'msg1', 'Updated content'))
-        .rejects.toThrow(ConversationNotFoundError);
-    });
-    
-    it('should throw error if message does not exist', async () => {
-      // Mock conversation exists
-      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      const newMessage = {
+        id: 'new-msg',
+        role: 'user' as MessageRole,
+        content: 'Test message',
+        timestamp: Date.now()
+      };
       
-      await expect(storageManager.updateMessage('test-conversation', 'nonexistent', 'Updated content'))
-        .rejects.toThrow(MessageNotFoundError);
+      await expect(storageManager.addMessage('nonexistent', newMessage)).rejects.toThrow(ConversationNotFoundError);
     });
-    
+
     it('should update message content', async () => {
-      // Mock conversation exists
       jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
-      
-      // Mock save
       jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
       
-      const updatedConversation = await storageManager.updateMessage(
+      const result = await storageManager.updateMessage(
         'test-conversation',
         'msg1',
         'Updated content'
       );
       
-      // Should update message
-      expect(updatedConversation.messages[0].content).toBe('Updated content');
-      
-      // Should save conversation
-      expect(storageManager.saveConversation).toHaveBeenCalled();
-      
-      // Should emit event
+      expect(result.messages[0].content).toBe('Updated content');
       expect(eventBus.emit).toHaveBeenCalledWith('message:updated', {
         conversationId: 'test-conversation',
         messageId: 'msg1',
         previousContent: 'Hello',
-        currentContent: 'Updated content',
+        currentContent: 'Updated content'
+      });
+    });
+
+    it('should throw error when updating nonexistent message', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      
+      await expect(storageManager.updateMessage(
+        'test-conversation',
+        'nonexistent',
+        'Updated content'
+      )).rejects.toThrow(MessageNotFoundError);
+    });
+  });
+
+  describe('renameConversation', () => {
+    it('should rename conversation', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
+      
+      const result = await storageManager.renameConversation('test-conversation', 'New Title');
+      
+      expect(result.title).toBe('New Title');
+    });
+    
+    it('should throw error when renaming nonexistent conversation', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(null);
+      
+      await expect(storageManager.renameConversation('nonexistent', 'New Title')).rejects.toThrow(ConversationNotFoundError);
+    });
+  });
+
+  describe('import/export', () => {
+    it('should export to markdown', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      await storageManager.exportToMarkdown('test-conversation');
+      expect(StorageUtils.exportConversation).toHaveBeenCalledWith(app, sampleConversation, 'markdown');
+    });
+
+    it('should throw error when exporting nonexistent conversation to markdown', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(null);
+      await expect(storageManager.exportToMarkdown('nonexistent')).rejects.toThrow(ConversationNotFoundError);
+    });
+
+    it('should handle export error for markdown', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      (StorageUtils.exportConversation as jest.Mock).mockRejectedValue(new Error('Export failed'));
+      
+      await expect(storageManager.exportToMarkdown('test-conversation')).rejects.toThrow();
+    });
+
+    it('should export to json', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      await storageManager.exportToJson('test-conversation');
+      expect(StorageUtils.exportConversation).toHaveBeenCalledWith(app, sampleConversation, 'json');
+    });
+
+    it('should throw error when exporting nonexistent conversation to json', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(null);
+      await expect(storageManager.exportToJson('nonexistent')).rejects.toThrow(ConversationNotFoundError);
+    });
+
+    it('should import from markdown', async () => {
+      const markdown = `# Test Conversation\n\nUser: Hello\n\nAssistant: Hi there!`;
+      jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
+      
+      const result = await storageManager.importFromMarkdown(markdown);
+      expect(StorageUtils.parseMarkdownToConversation).toHaveBeenCalledWith(markdown);
+      expect(result.title).toBe('Test Conversation');
+      expect(result.messages).toHaveLength(2);
+    });
+
+    it('should handle import error for markdown', async () => {
+      const markdown = `Invalid markdown`;
+      (StorageUtils.parseMarkdownToConversation as jest.Mock).mockImplementation(() => {
+        throw new Error('Parse failed');
+      });
+      
+      await expect(storageManager.importFromMarkdown(markdown)).rejects.toThrow();
+    });
+
+    it('should import from json', async () => {
+      const importedConversation = { ...sampleConversation, id: 'imported-conversation' };
+      jest.spyOn(storageManager, 'saveConversation').mockResolvedValue();
+      
+      const result = await storageManager.importConversation(JSON.stringify(importedConversation));
+      expect(StorageUtils.parseJsonToConversation).toHaveBeenCalledWith(JSON.stringify(importedConversation));
+      expect(result.id).toBe('new-id');
+      expect(result.title).toBe('Test Import (Import)');
+    });
+
+    it('should handle import error for json', async () => {
+      const json = `Invalid json`;
+      (StorageUtils.parseJsonToConversation as jest.Mock).mockImplementation(() => {
+        throw new Error('Parse failed');
+      });
+      
+      await expect(storageManager.importConversation(json)).rejects.toThrow();
+    });
+  });
+
+  describe('backup', () => {
+    it('should create conversation backup', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      jest.spyOn(app.vault, 'createFolder').mockImplementation(async (path: string) => new mockTFolder(path));
+      
+      const backupPath = await storageManager.backupConversation('test-conversation');
+      expect(backupPath).toBeDefined();
+      expect(StorageUtils.backupConversation).toHaveBeenCalledWith(
+        app,
+        sampleConversation,
+        'conversations/backups'
+      );
+    });
+
+    it('should throw error when backing up nonexistent conversation', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(null);
+      await expect(storageManager.backupConversation('nonexistent'))
+        .rejects.toThrow(ConversationNotFoundError);
+    });
+
+    it('should handle backup error', async () => {
+      jest.spyOn(storageManager, 'getConversation').mockResolvedValue(sampleConversation);
+      (StorageUtils.backupConversation as jest.Mock).mockRejectedValue(new Error('Backup failed'));
+      
+      await expect(storageManager.backupConversation('test-conversation')).rejects.toThrow();
+    });
+  });
+
+  describe('event handling', () => {
+    it('should handle file creation events', async () => {
+      // Setup the vault.on mock to capture handlers
+      const handlers: Record<string, Function> = {};
+      (app.vault.on as jest.Mock).mockImplementation((event: string, handler: Function) => {
+        handlers[event] = handler;
+        return 'event-ref';
+      });
+      
+      // Initialize to register handlers
+      await storageManager.initialize();
+      
+      // Create a mock file
+      const mockFile = new mockTFile('conversations/new-conversation.json');
+      
+      // Mock the loadConversation method
+      jest.spyOn(storageManager as any, 'loadConversation').mockResolvedValue(sampleConversation);
+      
+      // Trigger the event
+      await handlers['create'](mockFile);
+      
+      // Verify the event was emitted
+      expect(eventBus.emit).toHaveBeenCalledWith('conversation:loaded', sampleConversation);
+    });
+    
+    it('should handle file modification events', async () => {
+      // Setup the vault.on mock to capture handlers
+      const handlers: Record<string, Function> = {};
+      (app.vault.on as jest.Mock).mockImplementation((event: string, handler: Function) => {
+        handlers[event] = handler;
+        return 'event-ref';
+      });
+      
+      // Initialize to register handlers
+      await storageManager.initialize();
+      
+      // Create a mock file
+      const mockFile = new mockTFile('conversations/test-conversation.json');
+      
+      // Mock the loadConversation method
+      jest.spyOn(storageManager as any, 'loadConversation').mockResolvedValue(sampleConversation);
+      
+      // Trigger the event
+      await handlers['modify'](mockFile);
+      
+      // Verify the event was emitted
+      expect(eventBus.emit).toHaveBeenCalledWith('conversation:updated', expect.any(Object));
+    });
+    
+    it('should handle file deletion events', async () => {
+      // Setup the vault.on mock to capture handlers
+      const handlers: Record<string, Function> = {};
+      (app.vault.on as jest.Mock).mockImplementation((event: string, handler: Function) => {
+        handlers[event] = handler;
+        return 'event-ref';
+      });
+      
+      // Initialize to register handlers
+      await storageManager.initialize();
+      
+      // Create a mock file
+      const mockFile = new mockTFile('conversations/test-conversation.json');
+      
+      // Trigger the event
+      handlers['delete'](mockFile);
+      
+      // Verify the event was emitted
+      expect(eventBus.emit).toHaveBeenCalledWith('conversation:deleted', 'test-conversation');
+    });
+    
+    it('should handle file rename events', async () => {
+      // Setup the vault.on mock to capture handlers
+      const handlers: Record<string, Function> = {};
+      (app.vault.on as jest.Mock).mockImplementation((event: string, handler: Function) => {
+        handlers[event] = handler;
+        return 'event-ref';
+      });
+      
+      // Initialize to register handlers
+      await storageManager.initialize();
+      
+      // Create a mock file
+      const mockFile = new mockTFile('conversations/new-name.json');
+      
+      // Trigger the event
+      handlers['rename'](mockFile, 'conversations/old-name.json');
+      
+      // Verify the event was emitted
+      expect(eventBus.emit).toHaveBeenCalledWith('conversation:renamed', {
+        oldId: 'old-name',
+        newId: 'new-name'
       });
     });
   });

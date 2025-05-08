@@ -50,10 +50,24 @@ jest.mock('../../src/providers/ProviderFactory', () => {
 
   return {
     ProviderFactory: {
+      initialize: jest.fn().mockResolvedValue(undefined),
       createProvider: jest.fn().mockReturnValue(mockAdapter),
       getSupportedProviders: jest.fn().mockReturnValue(['openai', 'anthropic', 'google']),
       isProviderSupported: jest.fn().mockImplementation((provider) => {
         return ['openai', 'anthropic', 'google'].includes(provider);
+      }),
+      getModelsForProvider: jest.fn().mockImplementation((provider) => {
+        return [{ id: 'gpt-4', name: 'GPT-4', provider: 'openai' }];
+      }),
+      getAllModels: jest.fn().mockReturnValue([
+        { id: 'gpt-4', name: 'GPT-4', provider: 'openai' },
+        { id: 'claude-3', name: 'Claude 3', provider: 'anthropic' }
+      ]),
+      findModelById: jest.fn().mockImplementation((modelId) => {
+        if (modelId === 'gpt-4') {
+          return { id: 'gpt-4', name: 'GPT-4', provider: 'openai' };
+        }
+        return undefined;
       })
     }
   };
@@ -67,7 +81,13 @@ describe('ProviderService', () => {
   beforeEach(() => {
     eventBus = new EventBus();
     settingsService = new SettingsService({} as any, {} as any, eventBus);
-    providerService = new ProviderService(eventBus, settingsService);
+    
+    // Initialize the provider service with the app
+    providerService = new ProviderService({} as any, eventBus, settingsService);
+    
+    // Manually initialize the provider service
+    providerService.initialize = jest.fn().mockResolvedValue(undefined);
+    (providerService as any).initialized = true;
   });
 
   test('should get provider adapter', async () => {

@@ -299,6 +299,14 @@ export class StorageService {
   }
   
   /**
+   * Get the storage manager instance.
+   * @returns The storage manager instance
+   */
+  public getStorageManager(): StorageManager {
+    return this.storageManager;
+  }
+  
+  /**
    * Handle storage errors.
    * @param error Error to handle
    */

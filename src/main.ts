@@ -13,14 +13,20 @@
  */
 
 import { App, Notice, TFile, TFolder } from './utils/obsidian-imports';
-import { Plugin } from 'obsidian';
+import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { EventBus } from './core/EventBus';
 import { EventBusFactory } from './core/EventBusFactory';
-import { SettingsManager } from './core/SettingsManager';
+import { SettingsManager, ChatsidianSettingTab } from './core/SettingsManager';
 import { SettingsService } from './services/SettingsService';
 import { StorageService } from './services/StorageService';
 import { ProviderService } from './services/ProviderService';
-import { ChatsidianSettings, DEFAULT_SETTINGS } from './models/Settings';
+import { VaultFacade } from './core/VaultFacade';
+import { BCPRegistry } from './mcp/BCPRegistry';
+import { ToolManager } from './mcp/ToolManager';
+import { MCPClient } from './mcp/client/MCPClient';
+import { AgentSystem } from './agents/AgentSystem';
+import { A2AAgentSystemIntegration } from './a2a/integration/AgentSystemIntegration';
+import { ChatView } from './ui/ChatView';
 
 /**
  * Constants for the plugin
@@ -59,6 +65,36 @@ export default class ChatsidianPlugin extends Plugin {
    * Provider service for managing AI providers and models
    */
   providerService: ProviderService;
+  
+  /**
+   * VaultFacade for vault operations
+   */
+  vaultFacade: VaultFacade;
+  
+  /**
+   * BCP Registry for managing Bounded Context Packs
+   */
+  bcpRegistry: BCPRegistry;
+  
+  /**
+   * Tool Manager for managing tools
+   */
+  toolManager: ToolManager;
+  
+  /**
+   * MCP Client for communicating with AI providers
+   */
+  mcpClient: MCPClient;
+  
+  /**
+   * Agent System for managing agents
+   */
+  agentSystem: AgentSystem;
+  
+  /**
+   * A2A Agent System Integration for A2A protocol support
+   */
+  a2aIntegration: A2AAgentSystemIntegration;
 
   /**
    * Whether the plugin is in debug mode
@@ -74,17 +110,20 @@ export default class ChatsidianPlugin extends Plugin {
     const startTime = performance.now();
     
     try {
-      // Initialize core components
-      await this.initializeCore();
-      
-      // Register commands
-      this.registerCommands();
-      
-      // Register views (placeholder for now)
-      this.registerViews();
-      
-      // Register event listeners
-      this.registerEventListeners();
+    // Initialize core components
+    await this.initializeCore();
+    
+    // Register commands
+    this.registerCommands();
+    
+    // Register views (placeholder for now)
+    this.registerViews();
+    
+    // Register settings tab
+    this.addSettingTab(new ChatsidianSettingTab(this.app, this));
+    
+    // Register event listeners
+    this.registerEventListeners();
       
       // Check for version changes and run migrations if needed
       await this.handleVersionChanges();
@@ -137,13 +176,47 @@ export default class ChatsidianPlugin extends Plugin {
     // Update debug mode
     this.debugMode = this.settings.getSettings().debugMode;
     
-    // Initialize storage service
+    // Initialize VaultFacade - using Component pattern
+    this.vaultFacade = new VaultFacade(this.app);
+    this.addChild(this.vaultFacade);
+    
+    // Initialize storage service with VaultFacade
     this.storageService = new StorageService(this.app, this, this.eventBus, this.settings);
     await this.storageService.initialize();
     
     // Initialize provider service
     this.providerService = new ProviderService(this.app, this.eventBus, this.settingsService);
     await this.providerService.initialize();
+    
+    // Initialize BCP Registry - using Component pattern
+    this.bcpRegistry = new BCPRegistry(this.app, this.settings, this.vaultFacade, this.eventBus);
+    this.addChild(this.bcpRegistry);
+    
+    // Initialize Tool Manager - using Component pattern
+    this.toolManager = new ToolManager(this.app, this.bcpRegistry, this.eventBus);
+    this.addChild(this.toolManager);
+    
+    // Initialize MCP Client - using Component pattern
+    this.mcpClient = new MCPClient(this.app, this.settings, this.toolManager, this.eventBus);
+    this.addChild(this.mcpClient);
+    
+    // Initialize Agent System - using Component pattern
+    this.agentSystem = new AgentSystem(
+      this.app,
+      this.eventBus,
+      this.settings,
+      this.vaultFacade,
+      this.bcpRegistry,
+      this.toolManager
+    );
+    this.addChild(this.agentSystem);
+    
+    // Initialize A2A Agent System Integration
+    this.a2aIntegration = new A2AAgentSystemIntegration(
+      this.app,
+      this.eventBus,
+      this.agentSystem
+    );
     
     // Ensure plugin folders exist
     await this.ensurePluginFolders();
@@ -161,8 +234,7 @@ export default class ChatsidianPlugin extends Plugin {
       name: 'Open Chat',
       callback: () => {
         this.debug('Open chat command triggered');
-        // Placeholder until chat view is implemented
-        new Notice('Chat view will be implemented in Phase 3');
+        this.activateChatView();
       }
     });
     
@@ -193,11 +265,44 @@ export default class ChatsidianPlugin extends Plugin {
       }
     });
     
+    // Command to list BCPs
+    this.addCommand({
+      id: 'list-bcps',
+      name: 'List Bounded Context Packs',
+      callback: () => {
+        this.debug('List BCPs command triggered');
+        const bcpInfo = this.bcpRegistry.listPacksDetailed();
+        new Notice(`BCPs: ${bcpInfo.loaded} loaded of ${bcpInfo.total} available`);
+      }
+    });
+    
     // Add ribbon icon
     this.addRibbonIcon('message-circle', PLUGIN_NAME, () => {
       this.debug('Ribbon icon clicked');
-      // Placeholder until chat view is implemented
-      new Notice('Chat view will be implemented in Phase 3');
+      this.activateChatView();
+    });
+    
+    // Add BCP ribbon icon
+    this.addRibbonIcon('package', 'Chatsidian BCPs', () => {
+      this.debug('BCP ribbon icon clicked');
+      const bcpInfo = this.bcpRegistry.listPacksDetailed();
+      new Notice(`BCPs: ${bcpInfo.loaded} loaded of ${bcpInfo.total} available`);
+    });
+    
+    // Add A2A command
+    this.addCommand({
+      id: 'initialize-a2a',
+      name: 'Initialize A2A Protocol',
+      callback: async () => {
+        this.debug('Initialize A2A command triggered');
+        try {
+          await this.a2aIntegration.initialize();
+          new Notice('A2A protocol initialized successfully');
+        } catch (error: any) {
+          console.error('Failed to initialize A2A protocol:', error);
+          new Notice(`Failed to initialize A2A protocol: ${error.message}`);
+        }
+      }
     });
     
     this.debug('Commands registered');
@@ -205,21 +310,86 @@ export default class ChatsidianPlugin extends Plugin {
   
   /**
    * Register plugin views.
-   * These are placeholders until the views are implemented in Phase 3.
    */
   private registerViews(): void {
-    // Placeholder for view registration
-    // Will be implemented in Phase 3
-    this.debug('Views registered (placeholder)');
+    // Register chat view
+    this.registerView(
+      VIEW_TYPE_CHAT,
+      (leaf) => new ChatView(
+        leaf, 
+        this.eventBus, 
+        this.storageService.getStorageManager(),
+        this.settingsService,
+        this.providerService,
+        this.agentSystem
+      )
+    );
+    
+    // Load CSS styles
+    this.loadStyles();
+    
+    this.debug('Views registered');
   }
   
   /**
    * Close any open views.
    */
   private closeViews(): void {
-    // Placeholder for view closing
-    // Will be implemented in Phase 3
-    this.debug('Views closed (placeholder)');
+    // Close chat view
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT);
+    
+    this.debug('Views closed');
+  }
+  
+  /**
+   * Load CSS styles for the plugin.
+   */
+  private loadStyles(): void {
+    // Add styles.css to the document
+    const styleEl = document.createElement('link');
+    styleEl.rel = 'stylesheet';
+    styleEl.href = this.app.vault.adapter.getResourcePath('styles.css');
+    document.head.appendChild(styleEl);
+    
+    this.debug('Styles loaded');
+  }
+  
+  /**
+   * Activate the chat view.
+   * Opens the chat view in a new leaf or focuses an existing one.
+   */
+  public async activateChatView(): Promise<void> {
+    const { workspace } = this.app;
+    
+    try {
+      // Check if view is already open
+      let leaf = workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
+      
+      if (!leaf) {
+        // Create new leaf in right split
+        const newLeaf = workspace.getRightLeaf(false);
+        
+        if (!newLeaf) {
+          throw new Error('Could not create leaf for chat view');
+        }
+        
+        // Set view state
+        await newLeaf.setViewState({
+          type: VIEW_TYPE_CHAT,
+          active: true
+        });
+        
+        leaf = newLeaf;
+      }
+      
+      // Reveal leaf - at this point leaf should not be null
+      workspace.revealLeaf(leaf);
+      
+      this.debug('Chat view activated');
+    } catch (error) {
+      this.debug('Failed to activate chat view:', error);
+      new Notice('Failed to open chat view');
+    }
   }
   
   /**
@@ -294,23 +464,21 @@ export default class ChatsidianPlugin extends Plugin {
     const conversationsFolder = settings.conversationsFolder;
     
     try {
-      // Check if conversations folder exists
-      const folder = this.app.vault.getAbstractFileByPath(conversationsFolder);
+      // Check if conversations folder exists using VaultFacade
+      const folderExists = await this.vaultFacade.folderExists(conversationsFolder);
       
-      if (!folder) {
+      if (!folderExists) {
         // Create folder if it doesn't exist
-        await this.app.vault.createFolder(conversationsFolder);
+        await this.vaultFacade.createFolder(conversationsFolder);
         this.debug(`Created conversations folder: ${conversationsFolder}`);
-      } else if (!(folder instanceof TFolder)) {
-        console.error(`${conversationsFolder} exists but is not a folder`);
       }
       
       // Create backups folder if it doesn't exist
       const backupsFolder = `${conversationsFolder}/backups`;
-      const backupsFolderFile = this.app.vault.getAbstractFileByPath(backupsFolder);
+      const backupsFolderExists = await this.vaultFacade.folderExists(backupsFolder);
       
-      if (!backupsFolderFile) {
-        await this.app.vault.createFolder(backupsFolder);
+      if (!backupsFolderExists) {
+        await this.vaultFacade.createFolder(backupsFolder);
         this.debug(`Created backups folder: ${backupsFolder}`);
       }
     } catch (error) {

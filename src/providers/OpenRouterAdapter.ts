@@ -11,9 +11,9 @@ import {
   ProviderChunk, 
   ProviderMessage, 
   ProviderRequest, 
-  ProviderResponse,
-  COMMON_MODELS
+  ProviderResponse
 } from '../models/Provider';
+import { ModelsLoader } from './ModelsLoader';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -78,102 +78,14 @@ export class OpenRouterAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Request models from OpenRouter API
-      const response = await requestUrl({
-        url: `${this.getBaseUrl()}/models`,
-        method: 'GET',
-        headers: this.getHeaders(),
-        throw: false
-      });
-      
-      if (response.status !== 200) {
-        throw new Error(`Failed to get models: ${response.status} ${response.text}`);
-      }
-      
-      // Parse the response
-      const data = response.json;
-      
-      // Map to our ModelInfo format
-      if (data && data.data && Array.isArray(data.data)) {
-        return data.data.map((model: any) => {
-          // Extract provider and model name
-          const providerName = model.id.split('/')[0] || 'unknown';
-          const modelId = model.id.split('/')[1] || model.id;
-          
-          return {
-            id: model.id,
-            name: model.name || `${providerName} ${modelId}`,
-            provider: this.provider,
-            contextSize: model.context_length || 4096,
-            supportsTools: model.capabilities?.tools || false,
-            supportsJson: model.capabilities?.json_response || false,
-            maxOutputTokens: model.capabilities?.max_output_tokens || 4096
-          };
-        });
-      }
-      
-      // Fallback to known models
-      return [
-        {
-          id: 'anthropic/claude-3-opus-20240229',
-          name: 'Claude 3 Opus (via OpenRouter)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'anthropic/claude-3-sonnet-20240229',
-          name: 'Claude 3 Sonnet (via OpenRouter)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'anthropic/claude-3-haiku-20240307',
-          name: 'Claude 3 Haiku (via OpenRouter)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'openai/gpt-4o',
-          name: 'GPT-4o (via OpenRouter)',
-          provider: this.provider,
-          contextSize: 128000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        }
-      ];
+      // Use the centralized models.yaml instead of API call
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      // Return a default set of models
-      return [
-        {
-          id: 'anthropic/claude-3-opus-20240229',
-          name: 'Claude 3 Opus (via OpenRouter)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'openai/gpt-4o',
-          name: 'GPT-4o (via OpenRouter)',
-          provider: this.provider,
-          contextSize: 128000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        }
-      ];
+      // Still use the centralized models.yaml even in error case
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     }
   }
 

@@ -119,6 +119,15 @@ export class CachedVaultFacade extends VaultFacade implements ICachedVaultFacade
   private cacheConfig: CacheConfig = DEFAULT_CACHE_CONFIG;
   
   /**
+   * Cache statistics for optimization
+   */
+  private cacheStats = {
+    hits: 0,
+    misses: 0,
+    invalidations: 0
+  };
+  
+  /**
    * Configure cache settings
    * @param config - Partial cache configuration to merge with current settings
    */
@@ -220,13 +229,16 @@ export class CachedVaultFacade extends VaultFacade implements ICachedVaultFacade
    * @param path - Path to the note
    * @returns Promise resolving to note content and path
    */
-  public async readNote(path: string): Promise<{ content: string; path: string }> {
+  public async readNote(path: string): Promise<{ content: string; path: string; metadata?: any }> {
     try {
       // Check cache first if enabled
       if (this.cacheConfig.enabled) {
         const cached = this.getCachedEntry(path);
         
         if (cached) {
+          // Track cache hit
+          this.cacheStats.hits++;
+          
           // Emit event for cache hit
           this.eventBus.emit('vaultFacade:cacheHit', { path });
           
@@ -234,13 +246,29 @@ export class CachedVaultFacade extends VaultFacade implements ICachedVaultFacade
         }
       }
       
-      // Not in cache, call super implementation
-      const result = await super.readNote(path);
-      
-      // Add to cache if enabled
+      // Cache miss
       if (this.cacheConfig.enabled) {
+        this.cacheStats.misses++;
+      }
+      
+      // Get file with proper error handling
+      const file = this.getFileByPath(path);
+      if (!file) {
+        throw new Error(`File not found: ${path}`);
+      }
+      
+      // Use vault.cachedRead for better performance
+      const content = await this.app.vault.cachedRead(file);
+      
+      // Get metadata if available
+      const metadata = this.app.metadataCache.getFileCache(file);
+      
+      const result = { content, path, metadata };
+      
+      // Add to cache if enabled and file should be cached
+      if (this.cacheConfig.enabled && this.shouldCache(file)) {
         this.cache.set(path, {
-          content: result.content,
+          content,
           timestamp: Date.now()
         });
         
@@ -255,8 +283,38 @@ export class CachedVaultFacade extends VaultFacade implements ICachedVaultFacade
         this.eventBus.emit('vaultFacade:cacheMiss', { path, error });
       }
       
+      // Use Obsidian's Notice API for user feedback
+      new Notice(`Error reading note: ${error.message}`);
+      
       throw error;
     }
+  }
+  
+  /**
+   * Determine if a file should be cached based on type and size
+   * @param file - File to check
+   * @returns Whether the file should be cached
+   */
+  private shouldCache(file: TFile): boolean {
+    // Don't cache very large files
+    const MAX_CACHEABLE_SIZE = 1000000; // 1MB
+    if (file.stat.size > MAX_CACHEABLE_SIZE) {
+      return false;
+    }
+    
+    // Always cache markdown files
+    if (file.extension === 'md') {
+      return true;
+    }
+    
+    // Cache other common text files
+    const textExtensions = ['txt', 'json', 'yaml', 'yml', 'csv', 'html', 'css', 'js', 'ts'];
+    if (textExtensions.includes(file.extension)) {
+      return true;
+    }
+    
+    // Don't cache binary files
+    return false;
   }
   
   /**
@@ -562,6 +620,66 @@ Here's an example of how to use batch operations to efficiently perform multiple
 /**
  * Example of using batch operations
  */
+/**
+ * Enhanced batch operations with undo support and error handling
+ */
+export class EnhancedBatchVaultFacade extends BatchVaultFacade {
+  /**
+   * Execute a batch with progress tracking and user feedback
+   */
+  public async executeWithProgress(operations: BatchOperation[]): Promise<BatchResult[]> {
+    // Create status bar item for tracking progress
+    const statusBar = this.addStatusBarItem();
+    statusBar.setText('Processing batch operations...');
+    
+    try {
+      // Start batch with progress tracking
+      let completed = 0;
+      const total = operations.length;
+      
+      // Update progress in status bar
+      const updateProgress = () => {
+        completed++;
+        statusBar.setText(`Processing: ${completed}/${total} operations`);
+      };
+      
+      // Register progress event handler
+      const progressHandler = this.eventBus.on('vaultFacade:batchProgress', () => {
+        updateProgress();
+      });
+      
+      // Execute batch
+      const results = await this.executeBatch(operations);
+      
+      // Unregister progress handler
+      this.eventBus.off('vaultFacade:batchProgress', progressHandler);
+      
+      // Show completion notice
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.length - successCount;
+      
+      if (failureCount === 0) {
+        new Notice(`Batch completed: ${successCount} operations successful`);
+      } else {
+        new Notice(`Batch completed with errors: ${successCount} succeeded, ${failureCount} failed`);
+      }
+      
+      // Clear status bar
+      statusBar.setText('');
+      
+      return results;
+    } catch (error) {
+      // Clear status bar on error
+      statusBar.setText('');
+      
+      // Show error notice
+      new Notice(`Batch operation failed: ${error.message}`);
+      
+      throw error;
+    }
+  }
+}
+
 export function demonstrateBatchOperations(vaultFacade: BatchVaultFacade) {
   // Define batch operations
   const operations: BatchOperation[] = [
@@ -726,25 +844,34 @@ export class WatchableVaultFacade extends BatchVaultFacade implements IWatchable
    * Register Obsidian vault event handlers
    */
   private registerVaultEvents(): void {
+    // Use registerEvent for proper cleanup when component is unloaded
     // File created
-    this.vault.on('create', (file) => {
-      this.handleFileChange('create', file);
-    });
+    this.registerEvent(
+      this.app.vault.on('create', (file) => {
+        this.handleFileChange('create', file);
+      })
+    );
     
     // File modified
-    this.vault.on('modify', (file) => {
-      this.handleFileChange('modify', file);
-    });
+    this.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        this.handleFileChange('modify', file);
+      })
+    );
     
     // File deleted
-    this.vault.on('delete', (file) => {
-      this.handleFileChange('delete', file);
-    });
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        this.handleFileChange('delete', file);
+      })
+    );
     
     // File renamed
-    this.vault.on('rename', (file, oldPath) => {
-      this.handleFileChange('rename', file, oldPath);
-    });
+    this.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        this.handleFileChange('rename', file, oldPath);
+      })
+    );
   }
   
   /**
@@ -1499,10 +1626,27 @@ export class TransactionalVaultFacade extends VirtualVaultFacade implements ITra
       operationCount: transaction.operations.length
     });
     
-    // Note: Actual rollback logic would require implementation of inverse operations
-    // or a proper undo/redo system, which is beyond the scope of this example.
-    // In a real implementation, we would need to keep track of the state before
-    // each operation and revert to that state.
+    // Implement rollback using Obsidian's native Command system for undo support
+    const operationSnapshots = this.transactionHistory.get(transactionId) || [];
+    
+    if (operationSnapshots.length > 0) {
+      // Restore state from snapshots in reverse order
+      for (let i = operationSnapshots.length - 1; i >= 0; i--) {
+        const snapshot = operationSnapshots[i];
+        try {
+          // Restore from snapshot
+          await this.restoreFromSnapshot(snapshot);
+        } catch (error) {
+          console.error(`Error restoring snapshot: ${error.message}`);
+          // Continue with other snapshots
+        }
+      }
+    } else {
+      console.warn(`No operation snapshots found for transaction: ${transactionId}`);
+    }
+    
+    // Clear snapshots after rollback
+    this.transactionHistory.delete(transactionId);
   }
   
   /**
@@ -1637,6 +1781,21 @@ export class EnhancedVaultFacade extends TransactionalVaultFacade implements
   ITransactionalVaultFacade {
   
   /**
+   * Map for operation snapshots to support rollback
+   */
+  private transactionHistory: Map<string, OperationSnapshot[]> = new Map();
+  
+  /**
+   * Track performance metrics for operations
+   */
+  private metrics: Record<string, {
+    calls: number;
+    totalTime: number;
+    averageTime: number;
+    maxTime: number;
+  }> = {};
+  
+  /**
    * Constructor
    */
   constructor(app: App, eventBus: EventBus) {
@@ -1649,8 +1808,280 @@ export class EnhancedVaultFacade extends TransactionalVaultFacade implements
       ttl: 60000 // 1 minute
     });
     
+    // Initialize metrics
+    this.initializeMetrics();
+    
     // Log initialization
     console.log('EnhancedVaultFacade initialized with all advanced features');
+  }
+  
+  /**
+   * Component lifecycle method - called when component is loaded
+   */
+  onload(): void {
+    super.onload();
+    
+    // Register for Obsidian's layout-ready event to perform additional initialization
+    this.registerEvent(
+      this.app.workspace.on('layout-ready', () => {
+        this.onWorkspaceReady();
+      })
+    );
+  }
+  
+  /**
+   * Called when workspace layout is ready
+   */
+  private onWorkspaceReady(): void {
+    // Preload frequently used files in cache
+    this.preloadCommonFiles();
+  }
+  
+  /**
+   * Preload commonly accessed files
+   */
+  private preloadCommonFiles(): void {
+    // Only preload if cache is enabled
+    if (!this.cacheConfig.enabled) return;
+    
+    // Common files to preload
+    const commonFiles = [
+      'README.md',
+      'index.md'
+    ];
+    
+    // Preload files
+    this.preloadCache(commonFiles).catch(error => {
+      console.warn('Error preloading cache:', error);
+    });
+  }
+  
+  /**
+   * Initialize performance metrics
+   */
+  private initializeMetrics(): void {
+    // Initialize metrics for common operations
+    const operations = [
+      'readNote',
+      'createNote',
+      'updateNote',
+      'deleteNote',
+      'listFolder',
+      'executeBatch',
+      'commitTransaction'
+    ];
+    
+    for (const op of operations) {
+      this.metrics[op] = {
+        calls: 0,
+        totalTime: 0,
+        averageTime: 0,
+        maxTime: 0
+      };
+    }
+  }
+  
+  /**
+   * Record performance metric for an operation
+   * @param operation - Operation name
+   * @param time - Execution time in milliseconds
+   */
+  private recordMetric(operation: string, time: number): void {
+    if (!this.metrics[operation]) {
+      this.metrics[operation] = {
+        calls: 0,
+        totalTime: 0,
+        averageTime: 0,
+        maxTime: 0
+      };
+    }
+    
+    const metric = this.metrics[operation];
+    metric.calls++;
+    metric.totalTime += time;
+    metric.averageTime = metric.totalTime / metric.calls;
+    metric.maxTime = Math.max(metric.maxTime, time);
+  }
+  
+  /**
+   * Get performance metrics
+   * @returns Performance metrics for all operations
+   */
+  public getPerformanceMetrics(): Record<string, {
+    calls: number;
+    totalTime: number;
+    averageTime: number;
+    maxTime: number;
+  }> {
+    return { ...this.metrics };
+  }
+  
+  /**
+   * Get cache statistics
+   * @returns Cache hit/miss statistics
+   */
+  public getCacheStats(): { hits: number; misses: number; invalidations: number } {
+    return { ...this.cacheStats };
+  }
+  
+  /**
+   * Enhanced search that leverages Obsidian's MetadataCache
+   * @param query - Search query
+   * @param options - Search options
+   * @returns Search results with improved metadata
+   */
+  public async searchWithMetadata(query: string, options?: any): Promise<any[]> {
+    const startTime = Date.now();
+    
+    try {
+      // Use Obsidian's MetadataCache for more efficient searching
+      const results = [];
+      
+      // Get all markdown files
+      const files = this.app.vault.getMarkdownFiles();
+      
+      // For each file, check if it matches the query
+      for (const file of files) {
+        // Get file metadata
+        const metadata = this.app.metadataCache.getFileCache(file);
+        if (!metadata) continue;
+        
+        // Check for match in title
+        const titleMatch = file.basename.toLowerCase().includes(query.toLowerCase());
+        
+        // Check for match in headings
+        const headingsMatch = metadata.headings?.some(h => 
+          h.heading.toLowerCase().includes(query.toLowerCase())
+        ) || false;
+        
+        // Check for match in tags
+        const tagsMatch = metadata.tags?.some(tag => 
+          tag.tag.toLowerCase().includes(query.toLowerCase())
+        ) || false;
+        
+        // Add to results if any match
+        if (titleMatch || headingsMatch || tagsMatch) {
+          results.push({
+            path: file.path,
+            title: file.basename,
+            matches: {
+              title: titleMatch,
+              headings: headingsMatch,
+              tags: tagsMatch
+            },
+            metadata
+          });
+        }
+      }
+      
+      // Record metric
+      this.recordMetric('searchWithMetadata', Date.now() - startTime);
+      
+      return results;
+    } catch (error) {
+      console.error('Error in searchWithMetadata:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Operation snapshot for transaction rollback
+   */
+  private interface OperationSnapshot {
+    operation: BatchOperation;
+    previousState?: any;
+    path: string;
+  }
+  
+  /**
+   * Create operation snapshot before executing
+   * @param operation - Operation to snapshot
+   * @returns Promise resolving to snapshot
+   */
+  private async createOperationSnapshot(operation: BatchOperation): Promise<OperationSnapshot> {
+    const snapshot: OperationSnapshot = { operation, path: operation.path };
+    
+    try {
+      // For operations that modify content, store the previous state
+      if (operation.type === 'update' || operation.type === 'delete') {
+        const file = this.getFileByPath(operation.path);
+        if (file) {
+          // Read current content
+          const content = await this.app.vault.read(file);
+          snapshot.previousState = { content };
+        }
+      }
+    } catch (error) {
+      console.warn(`Error creating operation snapshot: ${error.message}`);
+    }
+    
+    return snapshot;
+  }
+  
+  /**
+   * Restore state from operation snapshot
+   * @param snapshot - Operation snapshot
+   * @returns Promise resolving when restored
+   */
+  private async restoreFromSnapshot(snapshot: OperationSnapshot): Promise<void> {
+    try {
+      const { operation, previousState } = snapshot;
+      
+      if (!previousState) return;
+      
+      // Restore based on operation type
+      switch (operation.type) {
+        case 'update':
+        case 'delete':
+          // Restore previous content
+          if (previousState.content) {
+            const file = this.getFileByPath(operation.path);
+            if (file) {
+              await this.app.vault.modify(file, previousState.content);
+            } else {
+              // File was deleted, recreate it
+              await this.app.vault.create(operation.path, previousState.content);
+            }
+          }
+          break;
+          
+        case 'create':
+          // Delete created file
+          const file = this.getFileByPath(operation.path);
+          if (file) {
+            await this.app.vault.delete(file);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error(`Error restoring from snapshot: ${error.message}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Override commitTransaction to track operation snapshots
+   */
+  public async commitTransaction(transactionId: string): Promise<BatchResult[]> {
+    // Check if transaction exists
+    const transaction = this.getTransaction(transactionId);
+    
+    if (!transaction) {
+      throw new Error(`Transaction not found: ${transactionId}`);
+    }
+    
+    // Create snapshots for operations
+    const snapshots: OperationSnapshot[] = [];
+    for (const operation of transaction.operations) {
+      const snapshot = await this.createOperationSnapshot(operation);
+      snapshots.push(snapshot);
+    }
+    
+    // Store snapshots for potential rollback
+    this.transactionHistory.set(transactionId, snapshots);
+    
+    // Continue with normal commit
+    return super.commitTransaction(transactionId);
   }
 }
 ```
@@ -1760,9 +2191,124 @@ export default class ChatsidianPlugin extends Plugin {
     }
   }
   
+  async onload() {
+    console.log('Loading Chatsidian plugin');
+    
+    // Initialize event bus
+    this.eventBus = new EventBus();
+    
+    // Initialize settings with proper component lifecycle
+    this.settings = new SettingsManager(this.app, this.eventBus);
+    this.addChild(this.settings); // Add as child for automatic lifecycle management
+    await this.settings.load();
+    
+    // Initialize enhanced vault facade with proper component lifecycle
+    this.vaultFacade = new EnhancedVaultFacade(this.app, this.eventBus);
+    this.addChild(this.vaultFacade); // Add as child for automatic lifecycle management
+    
+    // Configure vault facade based on settings
+    this.vaultFacade.configureCache({
+      enabled: this.settings.getSettings().cacheEnabled,
+      maxSize: this.settings.getSettings().cacheSize,
+      ttl: this.settings.getSettings().cacheTTL
+    });
+    
+    // Initialize BCP registry with proper component lifecycle
+    this.bcpRegistry = new BCPRegistry(
+      this.app, 
+      this.eventBus, 
+      this.settings,
+      this.vaultFacade
+    );
+    this.addChild(this.bcpRegistry); // Add as child for automatic lifecycle management
+    
+    // Initialize tool manager with proper component lifecycle
+    this.toolManager = new ToolManager(this.eventBus, this.bcpRegistry);
+    this.addChild(this.toolManager); // Add as child for automatic lifecycle management
+    
+    // Initialize BCP registry
+    await this.bcpRegistry.initialize();
+    
+    // Register event handlers with proper cleanup
+    this.registerEvents();
+    
+    // Wait for workspace to be ready before preloading cache
+    this.app.workspace.onLayoutReady(() => {
+      this.onWorkspaceReady();
+    });
+    
+    console.log('Chatsidian plugin loaded');
+  }
+  
+  private onWorkspaceReady() {
+    // Preload cache with frequently accessed files once workspace is ready
+    if (this.settings.getSettings().cacheEnabled) {
+      const frequentFiles = [
+        'README.md',
+        'Daily Notes/index.md',
+        'Projects/index.md'
+      ];
+      
+      this.vaultFacade.preloadCache(frequentFiles)
+        .catch(error => console.error('Error preloading cache:', error));
+    }
+  }
+  
+  private registerEvents() {
+    // Log VaultFacade events in debug mode using proper event registration
+    if (this.settings.getSettings().debugMode) {
+      // Cache events
+      this.registerEvent(
+        this.eventBus.on('vaultFacade:cacheHit', data => {
+          console.log(`Cache hit: ${data.path}`);
+        })
+      );
+      
+      this.registerEvent(
+        this.eventBus.on('vaultFacade:cacheMiss', data => {
+          console.log(`Cache miss: ${data.path}`);
+        })
+      );
+      
+      // Batch operation events
+      this.registerEvent(
+        this.eventBus.on('vaultFacade:batchCompleted', data => {
+          console.log(`Batch completed: ${data.success}/${data.operations} operations successful`);
+        })
+      );
+      
+      // File change events
+      this.registerEvent(
+        this.eventBus.on('vaultFacade:fileChanged', change => {
+          console.log(`File changed: ${change.path} (${change.type})`);
+        })
+      );
+      
+      // Virtual file events
+      this.registerEvent(
+        this.eventBus.on('vaultFacade:virtualFileCommitted', data => {
+          console.log(`Virtual file committed: ${data.path}`);
+        })
+      );
+      
+      // Transaction events
+      this.registerEvent(
+        this.eventBus.on('vaultFacade:transactionCommitted', data => {
+          console.log(`Transaction committed: ${data.id} with ${data.operationCount} operations`);
+        })
+      );
+    }
+  }
+  
+  /**
+   * Called when plugin is unloaded
+   * Component cleanup is handled automatically through the Component pattern
+   */
   onunload() {
-    // Clean up resources
-    this.eventBus.clear();
+    console.log('Unloading Chatsidian plugin');
+    // Automatic cleanup through Component pattern
+    // Each child component will have its onunload method called
+    super.onunload();
   }
 }
 ```

@@ -213,10 +213,30 @@ export function createNoteManagerBCP(context: BCPContext): BoundedContextPack {
     description: 'Tools for managing notes in the vault',
     tools: [
       {
-        name: 'readNote',
+        name: 'read',
         description: 'Read a note from the vault',
         handler: async (params: { path: string }) => {
-          return await vaultFacade.readNote(params.path);
+          // Use Obsidian's native Vault.read method through our facade
+          const file = vaultFacade.app.vault.getAbstractFileByPath(params.path);
+          if (!file || !(file instanceof vaultFacade.app.vault.constructor.TFile)) {
+            throw new Error(`File not found: ${params.path}`);
+          }
+          
+          const content = await vaultFacade.app.vault.read(file);
+          
+          // Return enhanced information about the file
+          return {
+            content,
+            path: file.path,
+            name: file.name,
+            basename: file.basename,
+            extension: file.extension,
+            stat: {
+              ctime: file.stat.ctime,
+              mtime: file.stat.mtime,
+              size: file.stat.size
+            }
+          };
         },
         schema: new SchemaBuilder()
           .addString('path', 'Path to the note', true)
@@ -224,34 +244,80 @@ export function createNoteManagerBCP(context: BCPContext): BoundedContextPack {
       },
       
       {
-        name: 'createNote',
+        name: 'create',
         description: 'Create a new note in the vault',
         handler: async (params: { 
           path: string; 
           content: string; 
-          overwrite?: boolean 
+          options?: {
+            mtime?: number,
+            ctime?: number
+          }
         }) => {
-          return await vaultFacade.createNote(
-            params.path,
-            params.content,
-            params.overwrite
-          );
+          try {
+            // Use Obsidian's native Vault.create method directly
+            const file = await vaultFacade.app.vault.create(
+              params.path,
+              params.content,
+              params.options
+            );
+            
+            // Return rich file information
+            return {
+              path: file.path,
+              name: file.name,
+              basename: file.basename,
+              extension: file.extension,
+              stat: {
+                ctime: file.stat.ctime,
+                mtime: file.stat.mtime
+              }
+            };
+          } catch (error) {
+            // Handle Obsidian's specific error pattern for existing files
+            if (error.message && error.message.includes('already exists')) {
+              throw new Error(`File already exists: ${params.path}`);
+            }
+            throw error;
+          }
         },
         schema: new SchemaBuilder()
           .addString('path', 'Path where the note should be created', true)
           .addString('content', 'Content of the note', true)
-          .addBoolean('overwrite', 'Whether to overwrite existing note (default: false)')
+          .addObject('options', 'Creation options (optional)', false, {
+            properties: {
+              mtime: { type: 'number', description: 'Modified time' },
+              ctime: { type: 'number', description: 'Created time' }
+            }
+          })
           .build()
       },
       
       {
-        name: 'updateNote',
+        name: 'modify',
         description: 'Update an existing note in the vault',
         handler: async (params: { path: string; content: string }) => {
-          return await vaultFacade.updateNote(
-            params.path,
-            params.content
-          );
+          // Get the file using Obsidian's native method
+          const file = vaultFacade.app.vault.getAbstractFileByPath(params.path);
+          if (!file || !(file instanceof vaultFacade.app.vault.constructor.TFile)) {
+            throw new Error(`File not found: ${params.path}`);
+          }
+          
+          // Use Obsidian's native Vault.modify method
+          await vaultFacade.app.vault.modify(file, params.content);
+          
+          // Return enhanced file information
+          return {
+            path: file.path,
+            name: file.name,
+            basename: file.basename,
+            extension: file.extension,
+            stat: {
+              ctime: file.stat.ctime,
+              mtime: file.stat.mtime,
+              size: file.stat.size
+            }
+          };
         },
         schema: new SchemaBuilder()
           .addString('path', 'Path to the note', true)
@@ -260,14 +326,33 @@ export function createNoteManagerBCP(context: BCPContext): BoundedContextPack {
       },
       
       {
-        name: 'deleteNote',
+        name: 'delete',
         description: 'Delete a note from the vault',
-        handler: async (params: { path: string }) => {
-          await vaultFacade.deleteNote(params.path);
-          return { success: true, path: params.path };
+        handler: async (params: { path: string; useTrash?: boolean }) => {
+          // Get the file using Obsidian's native method
+          const file = vaultFacade.app.vault.getAbstractFileByPath(params.path);
+          if (!file || !(file instanceof vaultFacade.app.vault.constructor.TFile)) {
+            throw new Error(`File not found: ${params.path}`);
+          }
+          
+          // Use Obsidian's native Vault.delete or trash method based on preference
+          if (params.useTrash !== false) {
+            // Default behavior: move to trash
+            await vaultFacade.app.vault.trash(file, false);
+          } else {
+            // Permanent deletion when explicitly requested
+            await vaultFacade.app.vault.delete(file);
+          }
+          
+          return { 
+            success: true, 
+            path: params.path,
+            deletionType: params.useTrash !== false ? 'trashed' : 'permanent'
+          };
         },
         schema: new SchemaBuilder()
           .addString('path', 'Path to the note to delete', true)
+          .addBoolean('useTrash', 'Whether to move the file to trash (default: true)')
           .build()
       },
       
@@ -447,6 +532,82 @@ export function createNoteManagerBCP(context: BCPContext): BoundedContextPack {
       },
       
       {
+        name: 'createBinary',
+        description: 'Create a new binary file in the vault',
+        handler: async (params: { 
+          path: string; 
+          data: ArrayBuffer;
+          options?: {
+            mtime?: number;
+            ctime?: number;
+          }
+        }) => {
+          try {
+            // Use Obsidian's native Vault.createBinary method directly
+            const file = await vaultFacade.app.vault.createBinary(
+              params.path,
+              params.data,
+              params.options
+            );
+            
+            // Return rich file information
+            return {
+              path: file.path,
+              name: file.name,
+              basename: file.basename,
+              extension: file.extension,
+              stat: {
+                ctime: file.stat.ctime,
+                mtime: file.stat.mtime,
+                size: file.stat.size
+              }
+            };
+          } catch (error) {
+            // Handle Obsidian's specific error pattern for existing files
+            if (error.message && error.message.includes('already exists')) {
+              throw new Error(`File already exists: ${params.path}`);
+            }
+            throw error;
+          }
+        },
+        schema: new SchemaBuilder()
+          .addString('path', 'Path where the binary file should be created', true)
+          .addObject('data', 'Binary data as ArrayBuffer', true)
+          .addObject('options', 'Creation options (optional)', false, {
+            properties: {
+              mtime: { type: 'number', description: 'Modified time' },
+              ctime: { type: 'number', description: 'Created time' }
+            }
+          })
+          .build()
+      },
+      
+      {
+        name: 'rename',
+        description: 'Rename a note to a new path',
+        handler: async (params: { path: string; newPath: string }) => {
+          // Get the file using Obsidian's native method
+          const file = vaultFacade.app.vault.getAbstractFileByPath(params.path);
+          if (!file || !(file instanceof vaultFacade.app.vault.constructor.TFile)) {
+            throw new Error(`File not found: ${params.path}`);
+          }
+          
+          // Use Obsidian's native Vault.rename method
+          await vaultFacade.app.vault.rename(file, params.newPath);
+          
+          return {
+            success: true,
+            oldPath: params.path,
+            newPath: params.newPath
+          };
+        },
+        schema: new SchemaBuilder()
+          .addString('path', 'Current path of the note', true)
+          .addString('newPath', 'New path for the note', true)
+          .build()
+      },
+      
+      {
         name: 'batchEdit',
         description: 'Perform multiple edits on a note in a single operation',
         handler: async (params: { 
@@ -462,8 +623,14 @@ export function createNoteManagerBCP(context: BCPContext): BoundedContextPack {
             endLine?: number;
           }>
         }) => {
-          // Read note
-          const { content } = await vaultFacade.readNote(params.path);
+          // Get the file using Obsidian's native method
+          const file = vaultFacade.app.vault.getAbstractFileByPath(params.path);
+          if (!file || !(file instanceof vaultFacade.app.vault.constructor.TFile)) {
+            throw new Error(`File not found: ${params.path}`);
+          }
+          
+          // Read content using Obsidian's native method
+          const content = await vaultFacade.app.vault.read(file);
           
           // Apply operations sequentially
           let newContent = content;
@@ -503,8 +670,21 @@ export function createNoteManagerBCP(context: BCPContext): BoundedContextPack {
             }
           }
           
-          // Update note
-          return await vaultFacade.updateNote(params.path, newContent);
+          // Update note using Obsidian's native method
+          await vaultFacade.app.vault.modify(file, newContent);
+          
+          // Return rich file information
+          return {
+            path: file.path,
+            name: file.name,
+            basename: file.basename,
+            extension: file.extension,
+            stat: {
+              ctime: file.stat.ctime,
+              mtime: file.stat.mtime,
+              size: file.stat.size
+            }
+          };
         },
         schema: {
           type: 'object',
@@ -587,8 +767,24 @@ export function createFolderManagerBCP(context: BCPContext): BoundedContextPack 
         name: 'createFolder',
         description: 'Create a new folder in the vault',
         handler: async (params: { path: string }) => {
-          await vaultFacade.createFolder(params.path);
-          return { success: true, path: params.path };
+          try {
+            // Use Obsidian's native Vault.createFolder method directly
+            const folder = await vaultFacade.app.vault.createFolder(params.path);
+            
+            // Return enhanced folder information
+            return { 
+              success: true, 
+              path: folder.path,
+              name: folder.name,
+              isRoot: folder.isRoot()
+            };
+          } catch (error) {
+            // Handle Obsidian's specific error for existing folders
+            if (error.message && error.message.includes('already exists')) {
+              throw new Error(`Folder already exists: ${params.path}`);
+            }
+            throw error;
+          }
         },
         schema: new SchemaBuilder()
           .addString('path', 'Path where the folder should be created', true)
@@ -892,20 +1088,151 @@ export function createVaultLibrarianBCP(context: BCPContext): BoundedContextPack
           includeContent?: boolean;
           limit?: number;
           paths?: string[];
+          searchTypes?: Array<'title' | 'content' | 'tag' | 'heading' | 'property'>;
         }) => {
-          // Use enhanced VaultFacade to search
-          const results = await vaultFacade.searchContent(
-            params.query,
-            {
-              includeContent: params.includeContent,
-              limit: params.limit,
-              paths: params.paths
+          // Get all markdown files
+          const allFiles = vaultFacade.app.vault.getMarkdownFiles();
+          
+          // Filter by paths if provided
+          const filteredFiles = params.paths 
+            ? allFiles.filter(file => params.paths.some(path => file.path.startsWith(path)))
+            : allFiles;
+          
+          // Default search types
+          const searchTypes = params.searchTypes || ['title', 'content', 'tag', 'heading'];
+          
+          // Normalize query
+          const normalizedQuery = params.query.toLowerCase();
+          
+          // Array to store search results
+          const results = [];
+          
+          // Search in files
+          for (const file of filteredFiles) {
+            // Get metadata cache for this file
+            const cache = vaultFacade.app.metadataCache.getFileCache(file);
+            if (!cache && searchTypes.some(type => type !== 'content')) continue;
+            
+            // Initialize file match data
+            let foundMatch = false;
+            let score = 0;
+            let matchDetails = [];
+            
+            // Search in title
+            if (searchTypes.includes('title')) {
+              const titleMatch = file.basename.toLowerCase().includes(normalizedQuery);
+              if (titleMatch) {
+                foundMatch = true;
+                score += 100;
+                matchDetails.push({ type: 'title', text: file.basename });
+              }
             }
-          );
+            
+            // Search in headings
+            if (searchTypes.includes('heading') && cache?.headings) {
+              const headingMatches = cache.headings.filter(h => 
+                h.heading.toLowerCase().includes(normalizedQuery)
+              );
+              
+              if (headingMatches.length > 0) {
+                foundMatch = true;
+                score += 80;
+                matchDetails.push(...headingMatches.map(h => ({ 
+                  type: 'heading', 
+                  level: h.level, 
+                  text: h.heading 
+                })));
+              }
+            }
+            
+            // Search in tags
+            if (searchTypes.includes('tag') && cache?.tags) {
+              const tagMatches = cache.tags.filter(tag => 
+                tag.tag.toLowerCase().includes(normalizedQuery)
+              );
+              
+              if (tagMatches.length > 0) {
+                foundMatch = true;
+                score += 70;
+                matchDetails.push(...tagMatches.map(tag => ({ 
+                  type: 'tag', 
+                  text: tag.tag 
+                })));
+              }
+            }
+            
+            // Search in properties
+            if (searchTypes.includes('property') && cache?.frontmatter) {
+              const frontmatterStr = JSON.stringify(cache.frontmatter).toLowerCase();
+              const propertyMatch = frontmatterStr.includes(normalizedQuery);
+              
+              if (propertyMatch) {
+                foundMatch = true;
+                score += 60;
+                
+                // Find which properties match
+                const matchingProps = Object.entries(cache.frontmatter)
+                  .filter(([key, value]) => {
+                    const keyMatch = key.toLowerCase().includes(normalizedQuery);
+                    const valueMatch = String(value).toLowerCase().includes(normalizedQuery);
+                    return keyMatch || valueMatch;
+                  })
+                  .map(([key, value]) => ({ type: 'property', key, value: String(value) }));
+                  
+                matchDetails.push(...matchingProps);
+              }
+            }
+            
+            // Search in content (only if needed)
+            let content;
+            let snippet = '';
+            
+            if (!foundMatch && searchTypes.includes('content') || params.includeContent) {
+              content = await vaultFacade.app.vault.read(file);
+              const contentMatch = content.toLowerCase().includes(normalizedQuery);
+              
+              if (contentMatch) {
+                foundMatch = true;
+                score += 40;
+                
+                // Create snippet
+                const index = content.toLowerCase().indexOf(normalizedQuery);
+                const start = Math.max(0, index - 40);
+                const end = Math.min(content.length, index + params.query.length + 60);
+                
+                snippet = (start > 0 ? '...' : '') + 
+                  content.substring(start, end) + 
+                  (end < content.length ? '...' : '');
+                  
+                matchDetails.push({ type: 'content', snippet });
+              }
+            }
+            
+            // Add to results if any match found
+            if (foundMatch) {
+              results.push({
+                path: file.path,
+                name: file.basename,
+                score,
+                matches: matchDetails,
+                snippet: snippet || matchDetails[0]?.text || file.basename,
+                content: params.includeContent ? content : undefined
+              });
+            }
+          }
+          
+          // Sort results by score (descending)
+          results.sort((a, b) => b.score - a.score);
+          
+          // Apply limit
+          const limit = params.limit || 20;
+          const limitedResults = results.slice(0, limit);
           
           return {
             query: params.query,
-            results
+            count: limitedResults.length,
+            total: results.length,
+            results: limitedResults
           };
         },
         schema: new SchemaBuilder()
@@ -914,6 +1241,13 @@ export function createVaultLibrarianBCP(context: BCPContext): BoundedContextPack
           .addNumber('limit', 'Maximum number of results to return (default: 20)', false, {
             minimum: 1,
             maximum: 100
+          })
+          .addArray('paths', 'Only search in these paths (optional)', false)
+          .addArray('searchTypes', 'Types of content to search in (default: all)', false, {
+            items: {
+              type: 'string',
+              enum: ['title', 'content', 'tag', 'heading', 'property']
+            }
           })
           .build()
       },
@@ -1342,24 +1676,60 @@ export function createPaletteCommanderBCP(context: BCPContext): BoundedContextPa
       {
         name: 'executeCommand',
         description: 'Execute an Obsidian command by ID',
-        handler: async (params: { id: string }) => {
+        handler: async (params: { id: string; checkCallback?: boolean }) => {
+          // Get command detail
+          const command = vaultFacade.app.commands.commands[params.id];
+          
           // Check if command exists
-          if (!vaultFacade.app.commands.commands[params.id]) {
+          if (!command) {
             throw new Error(`Command not found: ${params.id}`);
           }
           
-          // Execute command
-          const result = await vaultFacade.app.commands.executeCommandById(params.id);
-          
-          return {
-            success: true,
-            id: params.id,
-            name: vaultFacade.app.commands.commands[params.id].name,
-            result
-          };
+          try {
+            // Check if command can be executed (if specified)
+            if (params.checkCallback && command.checkCallback) {
+              // For commands with checkCallback, check if they can be executed first
+              const canExecute = command.checkCallback(false);
+              if (!canExecute) {
+                return {
+                  success: false,
+                  id: params.id,
+                  name: command.name,
+                  error: "Command cannot be executed in the current context",
+                  canExecute: false
+                };
+              }
+            }
+            
+            // Execute command and track success
+            const result = await vaultFacade.app.commands.executeCommandById(params.id);
+            
+            // Return detailed information
+            return {
+              success: true,
+              id: params.id,
+              name: command.name,
+              result: result ?? true,
+              commandType: {
+                hasCallback: !!command.callback,
+                hasCheckCallback: !!command.checkCallback,
+                hasEditorCallback: !!command.editorCallback,
+                hasEditorCheckCallback: !!command.editorCheckCallback
+              }
+            };
+          } catch (error) {
+            // Return detailed error information
+            return {
+              success: false,
+              id: params.id,
+              name: command.name,
+              error: error instanceof Error ? error.message : String(error)
+            };
+          }
         },
         schema: new SchemaBuilder()
           .addString('id', 'ID of the command to execute', true)
+          .addBoolean('checkCallback', 'Whether to check if command can be executed before trying (default: false)')
           .build()
       },
       
@@ -2243,3 +2613,289 @@ Future phases will also include:
 4. Adding settings for customizing AI behavior and tool availability
 
 With the core BCPs implemented in this phase, we now have a solid foundation for AI-assisted vault operations in Obsidian.
+
+
+## Enhanced File Type Handling
+
+To better align with Obsidian's API, we've added a utility for file type detection that will be used in the BCPs:
+
+```typescript
+/**
+ * Utilities for file type checking
+ */
+export class FileTypeUtil {
+  /**
+   * Check if a file is a Markdown file
+   * @param file - File to check
+   * @returns Whether the file is a Markdown file
+   */
+  public static isMarkdownFile(file: TAbstractFile): boolean {
+    return file instanceof TFile && file.extension === 'md';
+  }
+  
+  /**
+   * Check if a file is an image file
+   * @param file - File to check
+   * @returns Whether the file is an image file
+   */
+  public static isImageFile(file: TAbstractFile): boolean {
+    if (!(file instanceof TFile)) return false;
+    
+    const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', 'webp'];
+    return imageExtensions.includes(file.extension.toLowerCase());
+  }
+  
+  /**
+   * Check if a file is a binary file
+   * @param file - File to check
+   * @returns Whether the file is a binary file
+   */
+  public static isBinaryFile(file: TAbstractFile): boolean {
+    if (!(file instanceof TFile)) return false;
+    
+    const textExtensions = ['md', 'txt', 'csv', 'json', 'js', 'ts', 'jsx', 'tsx', 'css', 'html', 'xml', 'yaml', 'yml'];
+    return !textExtensions.includes(file.extension.toLowerCase());
+  }
+  
+  /**
+   * Get file type information
+   * @param file - File to check
+   * @returns File type information
+   */
+  public static getFileTypeInfo(file: TAbstractFile): {
+    isFolder: boolean;
+    isMarkdown: boolean;
+    isImage: boolean;
+    isBinary: boolean;
+    extension?: string;
+  } {
+    if (file instanceof TFolder) {
+      return {
+        isFolder: true,
+        isMarkdown: false,
+        isImage: false,
+        isBinary: false
+      };
+    }
+    
+    if (file instanceof TFile) {
+      return {
+        isFolder: false,
+        isMarkdown: file.extension === 'md',
+        isImage: this.isImageFile(file),
+        isBinary: this.isBinaryFile(file),
+        extension: file.extension
+      };
+    }
+    
+    return {
+      isFolder: false,
+      isMarkdown: false,
+      isImage: false,
+      isBinary: false
+    };
+  }
+}
+```
+
+To improve compatibility with the Obsidian API, let's add this file type detection tool to the NoteManager BCP:
+
+```typescript
+{
+  name: 'getFileInfo',
+  description: 'Get detailed information about a file',
+  handler: async (params: { path: string }) => {
+    // Get file from path
+    const file = vaultFacade.app.vault.getAbstractFileByPath(params.path);
+    
+    if (!file) {
+      throw new Error(`File not found: ${params.path}`);
+    }
+    
+    // Base info for any abstract file
+    const baseInfo = {
+      path: file.path,
+      name: file.name,
+      parent: file.parent?.path
+    };
+    
+    // Add file-specific information
+    if (file instanceof vaultFacade.app.vault.constructor.TFile) {
+      const fileInfo = {
+        ...baseInfo,
+        basename: file.basename,
+        extension: file.extension,
+        stat: {
+          ctime: file.stat.ctime,
+          mtime: file.stat.mtime,
+          size: file.stat.size
+        },
+        ...FileTypeUtil.getFileTypeInfo(file)
+      };
+      
+      // Add metadata if it's a markdown file
+      if (fileInfo.isMarkdown) {
+        const metadata = vaultFacade.app.metadataCache.getFileCache(file);
+        if (metadata) {
+          fileInfo.metadata = {
+            headings: metadata.headings?.map(h => ({ 
+              level: h.level, 
+              text: h.heading 
+            })),
+            tags: metadata.tags?.map(t => t.tag),
+            links: metadata.links?.map(l => ({ 
+              link: l.link,
+              displayText: l.displayText
+            })),
+            frontmatter: metadata.frontmatter
+          };
+        }
+      }
+      
+      return fileInfo;
+    } 
+    
+    // It's a folder
+    if (file instanceof vaultFacade.app.vault.constructor.TFolder) {
+      return {
+        ...baseInfo,
+        isFolder: true,
+        isRoot: file.isRoot(),
+        children: file.children?.map(child => ({
+          path: child.path,
+          name: child.name,
+          isFolder: child instanceof vaultFacade.app.vault.constructor.TFolder
+        }))
+      };
+    }
+    
+    // Fallback for other abstract file types
+    return baseInfo;
+  },
+  schema: new SchemaBuilder()
+    .addString('path', 'Path to the file or folder', true)
+    .build()
+}
+```
+
+## Improved Error Handling
+
+To further enhance the BCPs' alignment with Obsidian's API, we need to implement standardized error handling. Let's add utilities to handle Obsidian-specific errors:
+
+```typescript
+/**
+ * Standardized error classes
+ */
+export class VaultError extends Error {
+  constructor(message: string) {
+    super(`[Vault] ${message}`);
+    this.name = 'VaultError';
+  }
+}
+
+export class FileNotFoundError extends VaultError {
+  constructor(path: string) {
+    super(`File not found: ${path}`);
+    this.name = 'FileNotFoundError';
+  }
+}
+
+export class FileExistsError extends VaultError {
+  constructor(path: string) {
+    super(`File already exists: ${path}`);
+    this.name = 'FileExistsError';
+  }
+}
+
+export class FolderNotFoundError extends VaultError {
+  constructor(path: string) {
+    super(`Folder not found: ${path}`);
+    this.name = 'FolderNotFoundError';
+  }
+}
+
+export class AccessDeniedError extends VaultError {
+  constructor(path: string, operation: string) {
+    super(`Access denied for operation '${operation}' on path: ${path}`);
+    this.name = 'AccessDeniedError';
+  }
+}
+
+/**
+ * Error handler for Obsidian vault operations
+ */
+export class ErrorHandler {
+  /**
+   * Handle errors from Obsidian's API
+   * @param error - Original error
+   * @param path - Path that was being accessed
+   * @param operation - Operation being performed
+   * @returns A standardized error
+   */
+  public static handleVaultError(error: any, path: string, operation: string): Error {
+    // If already a VaultError, return as is
+    if (error instanceof VaultError) {
+      return error;
+    }
+    
+    const errorMessage = error?.message || String(error);
+    
+    // Match common Obsidian error patterns
+    if (errorMessage.includes('already exists')) {
+      return new FileExistsError(path);
+    }
+    
+    if (errorMessage.includes('not found') || errorMessage.includes('does not exist')) {
+      return new FileNotFoundError(path);
+    }
+    
+    if (errorMessage.includes('EACCES') || errorMessage.includes('permission denied')) {
+      return new AccessDeniedError(path, operation);
+    }
+    
+    // Default to general vault error
+    return new VaultError(`Error in operation '${operation}' on path '${path}': ${errorMessage}`);
+  }
+}
+```
+
+## Integration with BCPRegistry
+
+To ensure these improvements are available through the BCPRegistry, we need to update the registry initialization code:
+
+```typescript
+/**
+ * Initialize BCPs with enhanced error handling
+ * @param registry - BCP registry
+ * @param context - BCP context with enhanced type detection
+ */
+export async function initializeBCPs(registry: BCPRegistry, context: BCPContext): Promise<void> {
+  // Register all BCPs
+  registerBCP(registry, createNoteManagerBCP, context);
+  registerBCP(registry, createFolderManagerBCP, context);
+  registerBCP(registry, createVaultLibrarianBCP, context);
+  registerBCP(registry, createPaletteCommanderBCP, context);
+  
+  // Set up error handlers and utilities
+  registry.onError((error, toolName) => {
+    // Standard error handling
+    console.error(`Error in tool ${toolName}:`, error);
+    
+    // Standardize errors
+    const standardizedError = error instanceof VaultError 
+      ? error 
+      : new VaultError(`Error in ${toolName}: ${error.message || String(error)}`);
+    
+    // Emit errors to event bus for consistent handling
+    context.eventBus.emit('bcpRegistry:error', {
+      toolName,
+      error: standardizedError
+    });
+  });
+  
+  // Emit initialization event
+  context.eventBus.emit('bcpRegistry:initialized');
+}
+```
+
+These improvements will make our implementation more robust and better aligned with Obsidian's native API patterns while maintaining compatibility with our existing architecture.

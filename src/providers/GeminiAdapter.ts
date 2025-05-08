@@ -12,9 +12,9 @@ import {
   ProviderChunk, 
   ProviderMessage, 
   ProviderRequest, 
-  ProviderResponse,
-  COMMON_MODELS
+  ProviderResponse
 } from '../models/Provider';
+import { ModelsLoader } from './ModelsLoader';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -84,39 +84,14 @@ export class GeminiAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Google doesn't have a models endpoint, so we return the known models
-      return [
-        {
-          id: 'gemini-1.5-flash',
-          name: 'Gemini 1.5 Flash',
-          provider: this.provider,
-          contextSize: 1000000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 8192
-        },
-        {
-          id: 'gemini-1.5-pro',
-          name: 'Gemini 1.5 Pro',
-          provider: this.provider,
-          contextSize: 1000000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 8192
-        },
-        {
-          id: 'gemini-1.0-pro',
-          name: 'Gemini 1.0 Pro',
-          provider: this.provider,
-          contextSize: 32768,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 8192
-        }
-      ];
+      // Google doesn't have a models endpoint, so we use the centralized models.yaml
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      return COMMON_MODELS.filter(model => model.provider === this.provider);
+      // Still use the centralized models.yaml even in error case
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     }
   }
 

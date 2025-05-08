@@ -11,9 +11,9 @@ import {
   ProviderChunk, 
   ProviderMessage, 
   ProviderRequest, 
-  ProviderResponse,
-  COMMON_MODELS
+  ProviderResponse
 } from '../models/Provider';
+import { ModelsLoader } from './ModelsLoader';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -79,36 +79,14 @@ export class OpenAIAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Get models from OpenAI API
-      const response = await this.client.models.list();
-      
-      // Filter for chat models and map to ModelInfo format
-      const openaiModels = response.data
-        .filter(model => model.id.includes('gpt'))
-        .map(model => {
-          // Try to find the model in COMMON_MODELS
-          const knownModel = COMMON_MODELS.find(m => m.id === model.id && m.provider === this.provider);
-          
-          if (knownModel) {
-            return knownModel;
-          }
-          
-          // Create a new ModelInfo for unknown models
-          return {
-            id: model.id,
-            name: model.id, // Use ID as name for unknown models
-            provider: this.provider,
-            contextSize: 4096, // Default context size
-            supportsTools: model.id.includes('gpt-4') || model.id.includes('gpt-3.5-turbo'), // Assume newer models support tools
-            supportsJson: model.id.includes('gpt-4') || model.id.includes('gpt-3.5-turbo'), // Assume newer models support JSON
-            maxOutputTokens: 4096 // Default max output tokens
-          };
-        });
-      
-      return openaiModels;
+      // Use the centralized models.yaml instead of API call
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      return COMMON_MODELS.filter(model => model.provider === this.provider);
+      // Still use the centralized models.yaml even in error case
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     }
   }
 

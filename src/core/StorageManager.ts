@@ -6,7 +6,7 @@
  */
 
 import { App, TFile, TFolder, Notice, Plugin } from '../utils/obsidian-imports';
-import { Conversation, Message, MessageRole, ConversationUtils } from '../models/Conversation';
+import { Conversation, Message, MessageRole, ConversationUtils, ConversationFolder } from '../models/Conversation';
 import { EventBus } from './EventBus';
 import { SettingsManager } from './SettingsManager';
 import { StorageUtils } from './StorageUtils';
@@ -574,5 +574,317 @@ export class StorageManager {
       console.error(`Failed to backup conversation ${conversationId}: ${error}`);
       throw error;
     }
+  }
+  
+  /**
+   * Get all conversation folders.
+   * @returns Promise that resolves with an array of folders
+   */
+  public async getFolders(): Promise<ConversationFolder[]> {
+    try {
+      const path = `${this.settings.getConversationsPath()}/folders.json`;
+      const file = this.app.vault.getAbstractFileByPath(path);
+      
+      if (!(file instanceof TFile)) {
+        // No folders file yet, return empty array
+        return [];
+      }
+      
+      const content = await this.app.vault.read(file);
+      
+      try {
+        return JSON.parse(content) as ConversationFolder[];
+      } catch (error) {
+        throw new JsonParseError(error.message);
+      }
+    } catch (error) {
+      if (error instanceof JsonParseError) {
+        throw error;
+      }
+      console.error('Failed to load folders:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Save all conversation folders.
+   * @param folders Array of folders to save
+   * @returns Promise that resolves when the folders are saved
+   */
+  private async saveFolders(folders: ConversationFolder[]): Promise<void> {
+    try {
+      const path = `${this.settings.getConversationsPath()}/folders.json`;
+      const content = JSON.stringify(folders, null, 2);
+      
+      const file = this.app.vault.getAbstractFileByPath(path);
+      
+      if (file instanceof TFile) {
+        await this.app.vault.modify(file, content);
+      } else {
+        await this.app.vault.create(path, content);
+      }
+      
+      // Emit event
+      this.eventBus.emit('folders:updated', folders);
+    } catch (error) {
+      console.error('Failed to save folders:', error);
+      throw new FileOperationError(`${this.settings.getConversationsPath()}/folders.json`, error.message);
+    }
+  }
+  
+  /**
+   * Get a folder by ID.
+   * @param id Folder ID
+   * @returns Promise that resolves with the folder or null if not found
+   */
+  public async getFolder(id: string): Promise<ConversationFolder | null> {
+    const folders = await this.getFolders();
+    return folders.find(folder => folder.id === id) || null;
+  }
+  
+  /**
+   * Create a new folder.
+   * @param folderData Optional partial folder data
+   * @returns Promise that resolves with the new folder
+   */
+  public async createFolder(folderData?: Partial<ConversationFolder>): Promise<ConversationFolder> {
+    // Get existing folders
+    const folders = await this.getFolders();
+    
+    // Create new folder
+    const folder = ConversationUtils.createFolder(
+      folderData?.name || 'New Folder',
+      folderData?.parentId || undefined
+    );
+    
+    // Add any additional properties
+    if (folderData) {
+      Object.assign(folder, folderData);
+    }
+    
+    // Add to folders array
+    folders.push(folder);
+    
+    // Save folders
+    await this.saveFolders(folders);
+    
+    // Emit event
+    this.eventBus.emit('folder:created', folder);
+    
+    return folder;
+  }
+  
+  /**
+   * Save a folder.
+   * @param folder Folder to save
+   * @returns Promise that resolves when the folder is saved
+   */
+  public async saveFolder(folder: ConversationFolder): Promise<void> {
+    // Get existing folders
+    const folders = await this.getFolders();
+    
+    // Find folder index
+    const index = folders.findIndex(f => f.id === folder.id);
+    
+    if (index === -1) {
+      // Folder doesn't exist, add it
+      folders.push(folder);
+    } else {
+      // Update existing folder
+      folders[index] = {
+        ...folder,
+        modifiedAt: Date.now()
+      };
+    }
+    
+    // Save folders
+    await this.saveFolders(folders);
+    
+    // Emit event
+    this.eventBus.emit('folder:updated', folder);
+  }
+  
+  /**
+   * Delete a folder.
+   * @param id Folder ID
+   * @returns Promise that resolves when the folder is deleted
+   */
+  public async deleteFolder(id: string): Promise<void> {
+    // Get existing folders
+    const folders = await this.getFolders();
+    
+    // Find folder index
+    const index = folders.findIndex(f => f.id === id);
+    
+    if (index === -1) {
+      // Folder doesn't exist
+      return;
+    }
+    
+    // Remove folder
+    const deletedFolder = folders.splice(index, 1)[0];
+    
+    // Save folders
+    await this.saveFolders(folders);
+    
+    // Emit event
+    this.eventBus.emit('folder:deleted', id);
+    
+    // Update any conversations in this folder to be ungrouped
+    const conversations = await this.getConversations();
+    for (const conversation of conversations) {
+      if (conversation.folderId === id) {
+        conversation.folderId = null;
+        await this.saveConversation(conversation);
+      }
+    }
+  }
+  
+  /**
+   * Move a conversation to a folder.
+   * @param conversationId Conversation ID
+   * @param folderId Folder ID or null to ungroup
+   * @returns Promise that resolves with the updated conversation
+   */
+  public async moveConversationToFolder(
+    conversationId: string,
+    folderId: string | null
+  ): Promise<Conversation> {
+    // Get conversation
+    const conversation = await this.getConversation(conversationId);
+    
+    if (!conversation) {
+      throw new ConversationNotFoundError(conversationId);
+    }
+    
+    // If folderId is not null, verify folder exists
+    if (folderId !== null) {
+      const folder = await this.getFolder(folderId);
+      if (!folder) {
+        throw new Error(`Folder with ID ${folderId} not found`);
+      }
+    }
+    
+    // Update folder ID
+    const updatedConversation = {
+      ...conversation,
+      folderId,
+      modifiedAt: Date.now()
+    };
+    
+    // Save conversation
+    await this.saveConversation(updatedConversation);
+    
+    // Emit event
+    this.eventBus.emit('conversation:moved', {
+      conversationId,
+      folderId
+    });
+    
+    return updatedConversation;
+  }
+  
+  /**
+   * Toggle the starred status of a conversation.
+   * @param conversationId Conversation ID
+   * @returns Promise that resolves with the updated conversation
+   */
+  public async toggleConversationStar(conversationId: string): Promise<Conversation> {
+    // Get conversation
+    const conversation = await this.getConversation(conversationId);
+    
+    if (!conversation) {
+      throw new ConversationNotFoundError(conversationId);
+    }
+    
+    // Toggle starred status
+    const updatedConversation = {
+      ...conversation,
+      isStarred: !conversation.isStarred,
+      modifiedAt: Date.now()
+    };
+    
+    // Save conversation
+    await this.saveConversation(updatedConversation);
+    
+    // Emit event
+    this.eventBus.emit('conversation:starred', {
+      conversationId,
+      isStarred: updatedConversation.isStarred
+    });
+    
+    return updatedConversation;
+  }
+  
+  /**
+   * Update conversation tags.
+   * @param conversationId Conversation ID
+   * @param tags Array of tags
+   * @returns Promise that resolves with the updated conversation
+   */
+  public async updateConversationTags(
+    conversationId: string,
+    tags: string[]
+  ): Promise<Conversation> {
+    // Get conversation
+    const conversation = await this.getConversation(conversationId);
+    
+    if (!conversation) {
+      throw new ConversationNotFoundError(conversationId);
+    }
+    
+    // Update tags
+    const updatedConversation = {
+      ...conversation,
+      tags,
+      modifiedAt: Date.now()
+    };
+    
+    // Save conversation
+    await this.saveConversation(updatedConversation);
+    
+    // Emit event
+    this.eventBus.emit('conversation:tags-updated', {
+      conversationId,
+      tags
+    });
+    
+    return updatedConversation;
+  }
+  
+  /**
+   * Search conversations by query.
+   * @param query Search query
+   * @returns Promise that resolves with matching conversations
+   */
+  public async searchConversations(query: string): Promise<Conversation[]> {
+    // Get all conversations
+    const conversations = await this.getConversations();
+    
+    if (!query) {
+      return conversations;
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    
+    // Filter conversations by title, content, or tags
+    return conversations.filter(conversation => {
+      // Check title
+      if (conversation.title.toLowerCase().includes(lowerQuery)) {
+        return true;
+      }
+      
+      // Check tags
+      if (conversation.tags && conversation.tags.some(tag => tag.toLowerCase().includes(lowerQuery))) {
+        return true;
+      }
+      
+      // Check message content
+      if (conversation.messages.some(message => message.content.toLowerCase().includes(lowerQuery))) {
+        return true;
+      }
+      
+      return false;
+    });
   }
 }

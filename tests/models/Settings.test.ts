@@ -24,8 +24,10 @@ describe('Settings Model & Utils', () => {
     expect(DEFAULT_SETTINGS).toHaveProperty('autoLoadBCPs');
     expect(DEFAULT_SETTINGS).toHaveProperty('defaultTemperature');
     expect(DEFAULT_SETTINGS).toHaveProperty('defaultMaxTokens');
+    expect(DEFAULT_SETTINGS).toHaveProperty('defaultAgentId');
+    expect(DEFAULT_SETTINGS).toHaveProperty('customAgents');
     // Ensure no unexpected properties are present (optional check)
-    expect(Object.keys(DEFAULT_SETTINGS).length).toBe(14);
+    expect(Object.keys(DEFAULT_SETTINGS).length).toBe(16);
   });
 
   test('DEFAULT_SETTINGS should have sensible default values', () => {

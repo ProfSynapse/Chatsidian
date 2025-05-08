@@ -35,6 +35,38 @@ export interface Conversation {
 
   /** Optional path within the vault where this conversation is stored */
   path?: string;
+  
+  /** Optional folder ID that this conversation belongs to */
+  folderId?: string | null;
+  
+  /** Optional array of tags for this conversation */
+  tags?: string[];
+  
+  /** Whether this conversation is starred/favorited */
+  isStarred?: boolean;
+}
+
+/**
+ * Represents a folder for organizing conversations
+ */
+export interface ConversationFolder {
+  /** Unique identifier for the folder */
+  id: string;
+  
+  /** Display name for the folder */
+  name: string;
+  
+  /** Optional parent folder ID for nested folders */
+  parentId?: string | null;
+  
+  /** Timestamp when the folder was created (Unix epoch milliseconds) */
+  createdAt: number;
+  
+  /** Timestamp when the folder was last modified (Unix epoch milliseconds) */
+  modifiedAt?: number;
+  
+  /** Optional metadata for the folder */
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -122,6 +154,9 @@ export class ConversationUtils {
       createdAt: now,
       modifiedAt: now,
       messages: [],
+      folderId: null,
+      tags: [],
+      isStarred: false
     };
   }
 
@@ -154,6 +189,25 @@ export class ConversationUtils {
       ...conversation,
       messages: [...conversation.messages, message],
       modifiedAt: Date.now(),
+    };
+  }
+  
+  /**
+   * Creates a new ConversationFolder object with default values and generated IDs.
+   * @param name The name of the folder.
+   * @param parentId Optional parent folder ID for nested folders.
+   * @returns A new ConversationFolder object.
+   */
+  static createFolder(name: string, parentId?: string): ConversationFolder {
+    const id = this.generateId();
+    const now = Date.now();
+    
+    return {
+      id,
+      name,
+      parentId: parentId || null,
+      createdAt: now,
+      modifiedAt: now
     };
   }
 

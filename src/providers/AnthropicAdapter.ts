@@ -12,9 +12,9 @@ import {
   ProviderChunk, 
   ProviderMessage, 
   ProviderRequest, 
-  ProviderResponse,
-  COMMON_MODELS
+  ProviderResponse
 } from '../models/Provider';
+import { ModelsLoader } from './ModelsLoader';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -41,7 +41,8 @@ export class AnthropicAdapter extends BaseAdapter {
     super(apiKey, apiEndpoint);
     
     const options: any = {
-      apiKey: this.apiKey
+      apiKey: this.apiKey,
+      dangerouslyAllowBrowser: true // Allow browser environment for testing
     };
 
     // Use custom API endpoint if provided
@@ -85,11 +86,14 @@ export class AnthropicAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Anthropic doesn't have a models endpoint, so we return the known models
-      return COMMON_MODELS.filter(model => model.provider === this.provider);
+      // Anthropic doesn't have a models endpoint, so we use the centralized models.yaml
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      return COMMON_MODELS.filter(model => model.provider === this.provider);
+      // Still use the centralized models.yaml even in error case
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     }
   }
 

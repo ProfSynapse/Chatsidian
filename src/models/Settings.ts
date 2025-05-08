@@ -5,6 +5,8 @@
  * and integration with Obsidian's data persistence.
  */
 
+import { AgentDefinition } from '../agents/AgentTypes';
+
 /**
  * Interface defining the structure of Chatsidian plugin settings.
  */
@@ -58,6 +60,12 @@ export interface ChatsidianSettings {
 
   /** Default maximum tokens parameter for AI responses (limits response length) */
   defaultMaxTokens: number;
+  
+  /** Default agent ID to use when none is specified */
+  defaultAgentId?: string;
+  
+  /** Custom agent definitions */
+  customAgents?: AgentDefinition[];
 }
 
 /**
@@ -80,6 +88,8 @@ export const DEFAULT_SETTINGS: ChatsidianSettings = {
   autoLoadBCPs: ['NoteManager', 'FolderManager', 'VaultLibrarian'], // Sensible defaults
   defaultTemperature: 0.7, // Balanced default
   defaultMaxTokens: 4000, // Allow reasonably long responses
+  defaultAgentId: 'general_assistant', // Default agent
+  customAgents: [] // No custom agents by default
 };
 
 /**
@@ -110,6 +120,8 @@ export class SettingsUtils {
       autoLoadBCPs: Array.isArray(merged.autoLoadBCPs) ? merged.autoLoadBCPs : DEFAULT_SETTINGS.autoLoadBCPs,
       defaultTemperature: this.validateTemperature(merged.defaultTemperature),
       defaultMaxTokens: this.validateMaxTokens(merged.defaultMaxTokens),
+      defaultAgentId: merged.defaultAgentId || DEFAULT_SETTINGS.defaultAgentId,
+      customAgents: Array.isArray(merged.customAgents) ? merged.customAgents : DEFAULT_SETTINGS.customAgents,
     };
   }
 

@@ -11,9 +11,9 @@ import {
   ProviderChunk, 
   ProviderMessage, 
   ProviderRequest, 
-  ProviderResponse,
-  COMMON_MODELS
+  ProviderResponse
 } from '../models/Provider';
+import { ModelsLoader } from './ModelsLoader';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -41,7 +41,7 @@ export class RequestyAdapter extends BaseAdapter {
    * @returns The base URL
    */
   private getBaseUrl(): string {
-    return this.apiEndpoint || 'https://router.requesty.ai';
+    return this.apiEndpoint || 'https://router.requesty.ai/v1';
   }
 
   /**
@@ -56,7 +56,7 @@ export class RequestyAdapter extends BaseAdapter {
       
       // Make a minimal request to test the connection
       const response = await requestUrl({
-        url: `${this.getBaseUrl()}/v1/models`,
+        url: `${this.getBaseUrl()}/models`,
         method: 'GET',
         headers: this.getHeaders(),
         throw: false
@@ -78,93 +78,14 @@ export class RequestyAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Request models from Requesty API
-      const response = await requestUrl({
-        url: `${this.getBaseUrl()}/v1/models`,
-        method: 'GET',
-        headers: this.getHeaders(),
-        throw: false
-      });
-      
-      if (response.status !== 200) {
-        throw new Error(`Failed to get models: ${response.status} ${response.text}`);
-      }
-      
-      // Parse the response
-      const data = response.json;
-      
-      // Map to our ModelInfo format
-      if (data && data.data && Array.isArray(data.data)) {
-        return data.data.map((model: any) => {
-          // Try to find the model in COMMON_MODELS
-          const providerName = model.id.split('/')[0] || 'unknown';
-          const modelId = model.id.split('/')[1] || model.id;
-          
-          return {
-            id: model.id,
-            name: model.name || modelId,
-            provider: this.provider,
-            contextSize: model.context_length || 4096,
-            supportsTools: model.capabilities?.tools || false,
-            supportsJson: model.capabilities?.json_response || false,
-            maxOutputTokens: model.capabilities?.max_output_tokens || 4096
-          };
-        });
-      }
-      
-      // Fallback to known models
-      return [
-        {
-          id: 'openai/gpt-4o',
-          name: 'GPT-4o (via Requesty)',
-          provider: this.provider,
-          contextSize: 128000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'anthropic/claude-3-opus-20240229',
-          name: 'Claude 3 Opus (via Requesty)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'anthropic/claude-3-sonnet-20240229',
-          name: 'Claude 3 Sonnet (via Requesty)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        }
-      ];
+      // Use the centralized models.yaml instead of API call
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      // Return a default set of models
-      return [
-        {
-          id: 'openai/gpt-4o',
-          name: 'GPT-4o (via Requesty)',
-          provider: this.provider,
-          contextSize: 128000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        },
-        {
-          id: 'anthropic/claude-3-opus-20240229',
-          name: 'Claude 3 Opus (via Requesty)',
-          provider: this.provider,
-          contextSize: 200000,
-          supportsTools: true,
-          supportsJson: true,
-          maxOutputTokens: 4096
-        }
-      ];
+      // Still use the centralized models.yaml even in error case
+      const modelsLoader = ModelsLoader.getInstance();
+      return modelsLoader.getModelsForProvider(this.provider);
     }
   }
 
@@ -183,7 +104,7 @@ export class RequestyAdapter extends BaseAdapter {
       
       // Send the request
       const response = await requestUrl({
-        url: `${this.getBaseUrl()}/v1/chat/completions`,
+        url: `${this.getBaseUrl()}/chat/completions`,
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(requestyRequest),
@@ -246,7 +167,7 @@ export class RequestyAdapter extends BaseAdapter {
       
       // For streaming, we need to use a different approach since EventSource doesn't support POST
       // We'll use fetch with ReadableStream instead
-      const response = await fetch(`${this.getBaseUrl()}/v1/chat/completions`, {
+      const response = await fetch(`${this.getBaseUrl()}/chat/completions`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(requestyRequest)
@@ -377,7 +298,7 @@ export class RequestyAdapter extends BaseAdapter {
     // Create the Requesty request (OpenAI-compatible format)
     const requestyRequest: any = {
       model: request.model,
-      messages: request.messages,
+      messages: this.capitalizeMessageRoles(request.messages),
       temperature: request.temperature !== undefined ? request.temperature : 0.7,
       max_tokens: request.maxTokens || 4096,
       stream: request.stream || false
@@ -392,6 +313,29 @@ export class RequestyAdapter extends BaseAdapter {
   }
 
   /**
+   * Capitalize message roles as required by Requesty API.
+   * 
+   * @param messages Array of messages
+   * @returns Array of messages with capitalized roles
+   */
+  private capitalizeMessageRoles(messages: ProviderMessage[]): any[] {
+    return messages.map(message => ({
+      ...message,
+      role: this.capitalizeFirstLetter(message.role)
+    }));
+  }
+
+  /**
+   * Capitalize the first letter of a string.
+   * 
+   * @param str String to capitalize
+   * @returns Capitalized string
+   */
+  private capitalizeFirstLetter(str: string): string {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  /**
    * Get the headers for Requesty API requests.
    * 
    * @returns The headers object
@@ -399,7 +343,9 @@ export class RequestyAdapter extends BaseAdapter {
   private getHeaders(): Record<string, string> {
     return {
       'Authorization': `Bearer ${this.apiKey}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://chatsidian.app', // Using a placeholder URL
+      'X-Title': 'Chatsidian' // Using the project name
     };
   }
 }

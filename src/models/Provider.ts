@@ -5,6 +5,8 @@
  * Also includes common model information.
  */
 
+import { ProviderType } from '../ui/models/ProviderType';
+
 /**
  * Represents a message in the format expected by AI providers.
  * This often differs slightly from the internal `Message` interface.
@@ -114,7 +116,7 @@ export interface ModelInfo {
   name: string;
 
   /** The provider offering this model (e.g., 'anthropic', 'openai') */
-  provider: string;
+  provider: ProviderType;
 
   /** Maximum context window size in tokens */
   contextSize: number;
