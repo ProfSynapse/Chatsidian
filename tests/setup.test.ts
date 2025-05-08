@@ -7,3 +7,6 @@ describe('Testing setup', () => {
     expect(1 + 1).toBe(2);
   });
 });
+
+// Export an empty object to make this file a module
+export {};

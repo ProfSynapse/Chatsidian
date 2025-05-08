@@ -14,7 +14,7 @@ export interface ChatsidianSettings {
   // --- API Configuration ---
 
   /** The AI provider service to use (e.g., 'anthropic', 'openai') */
-  provider: 'anthropic' | 'openai' | 'openrouter' | 'google' | 'custom';
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'google' | 'custom' | 'requesty';
 
   /** API key for the selected provider */
   apiKey: string;
@@ -135,6 +135,7 @@ export class SettingsUtils {
       'openrouter',
       'google',
       'custom',
+      'requesty',
     ];
     return validProviders.includes(provider as any)
       ? (provider as ChatsidianSettings['provider'])

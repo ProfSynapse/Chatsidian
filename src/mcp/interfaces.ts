@@ -226,3 +226,59 @@ export interface Tool {
     sortOrder?: number;
   };
 }
+
+/**
+ * BCP Metadata
+ * Contains metadata about a Bounded Context Pack
+ */
+export interface BCPMetadata {
+  /**
+   * Domain name for the pack (unique identifier)
+   */
+  domain: string;
+  
+  /**
+   * Human-readable description of the pack
+   */
+  description: string;
+  
+  /**
+   * Optional version number
+   */
+  version?: string;
+  
+  /**
+   * Number of tools in the pack
+   */
+  toolCount: number;
+  
+  /**
+   * Whether the pack is currently loaded
+   */
+  loaded: boolean;
+  
+  /**
+   * Optional dependencies on other BCPs
+   */
+  dependencies?: string[];
+  
+  /**
+   * Optional icon for the pack
+   */
+  icon?: string;
+  
+  /**
+   * Status information
+   */
+  status: {
+    /**
+     * Whether this is the System BCP
+     */
+    isSystem: boolean;
+    
+    /**
+     * Timestamp when the pack was loaded
+     */
+    loadedAt?: number;
+  };
+}

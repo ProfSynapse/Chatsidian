@@ -14,7 +14,9 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@google/genai": "^0.13.0",
     "@types/jest": "^29.5.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^16.11.6",
     "@typescript-eslint/eslint-plugin": "5.29.0",
     "@typescript-eslint/parser": "5.29.0",

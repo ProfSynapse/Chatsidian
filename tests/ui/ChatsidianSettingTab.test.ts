@@ -154,11 +154,11 @@ describe('ChatsidianSettingTab', () => {
     const updateSettingsSpy = jest.spyOn(settingsManager, 'updateSettings');
     
     // Mock Setting class
-    const mockSetting = {
+    const mockSetting: any = {
       setName: jest.fn().mockReturnThis(),
       setDesc: jest.fn().mockReturnThis(),
       addDropdown: jest.fn().mockImplementation(cb => {
-        const dropdown = {
+        const dropdown: any = {
           addOption: jest.fn().mockReturnThis(),
           setValue: jest.fn().mockReturnThis(),
           onChange: jest.fn().mockImplementation(fn => {

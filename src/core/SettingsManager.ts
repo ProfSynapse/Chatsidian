@@ -154,6 +154,8 @@ export class SettingsManager {
  * Provides a user interface for adjusting plugin settings.
  */
 export class ChatsidianSettingTab extends PluginSettingTab {
+  app: any;
+  containerEl: HTMLElement;
   private plugin: any;
   private settings: SettingsManager;
   
@@ -162,10 +164,25 @@ export class ChatsidianSettingTab extends PluginSettingTab {
    * @param app Obsidian app instance
    * @param plugin Plugin instance
    */
-  constructor(app: App, plugin: any) {
+  constructor(app: any, plugin: any) {
     super(app, plugin);
+    this.app = app;
     this.plugin = plugin;
     this.settings = plugin.settings;
+  }
+  
+  /**
+   * Hide the settings tab.
+   * This will be called by Obsidian when the settings tab is closed.
+   */
+  hide(): void {
+    // Clean up any resources
+    this.containerEl.empty();
+    
+    // Emit event that settings tab was closed
+    if (this.plugin.eventBus) {
+      this.plugin.eventBus.emit('settings:closed', undefined);
+    }
   }
   
   /**
