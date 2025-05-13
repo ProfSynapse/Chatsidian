@@ -34,6 +34,15 @@ export interface Setting {
   setWarning(): Setting;
 }
 
+export interface Modal {
+  app: App;
+  contentEl: HTMLElement;
+  open(): void;
+  close(): void;
+  onOpen(): void;
+  onClose(): void;
+}
+
 export interface Plugin {
   app: App;
   manifest: any;
@@ -86,6 +95,7 @@ let EventsImpl: any;
 let TFileImpl: any;
 let TFolderImpl: any;
 let NoticeImpl: any;
+let ModalImpl: any;
 
 try {
   // Try to import from the real Obsidian module
@@ -98,6 +108,7 @@ try {
   TFileImpl = obsidian.TFile;
   TFolderImpl = obsidian.TFolder;
   NoticeImpl = obsidian.Notice;
+  ModalImpl = obsidian.Modal;
 } catch (e) {
   // If that fails, use our mock implementations
   try {
@@ -107,9 +118,10 @@ try {
     SettingImpl = mocks.Setting;
     PluginImpl = mocks.Plugin;
     EventsImpl = mocks.Events;
-  TFileImpl = mocks.TFile;
-  TFolderImpl = mocks.TFolder;
-  NoticeImpl = mocks.Notice;
+    TFileImpl = mocks.TFile;
+    TFolderImpl = mocks.TFolder;
+    NoticeImpl = mocks.Notice;
+    ModalImpl = mocks.Modal;
   } catch (e) {
     // If both fail, provide dummy implementations
     console.warn('Neither Obsidian nor mocks could be loaded. Using dummy implementations.');
@@ -128,6 +140,7 @@ try {
     TFileImpl = DummyClass;
     TFolderImpl = DummyClass;
     NoticeImpl = DummyClass;
+    ModalImpl = DummyClass;
   }
 }
 
@@ -140,3 +153,4 @@ export const Events = EventsImpl;
 export const TFile = TFileImpl;
 export const TFolder = TFolderImpl;
 export const Notice = NoticeImpl;
+export const Modal = ModalImpl;

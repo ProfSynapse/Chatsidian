@@ -545,16 +545,23 @@ export class ProviderSettingsModal extends Modal {
    */
   onOpen(): void {
     const { contentEl } = this;
+    contentEl.empty();
     
-    // Set modal title
+    // Set modal title using Obsidian's standard class
     contentEl.createEl('h2', {
       text: 'Provider Settings',
       cls: 'modal-title'
     });
     
-    // Create provider settings container
+    // Create provider settings container with Obsidian's standard content class
     const providerSettingsContainerEl = contentEl.createDiv({
-      cls: 'modal-content'
+      cls: 'modal-content vertical-tab-content'
+    });
+    
+    // Add description
+    const descEl = contentEl.createEl('p', {
+      cls: 'setting-item-description',
+      text: 'Configure your AI provider settings and API keys'
     });
     
     // Initialize provider settings component
@@ -571,11 +578,19 @@ export class ProviderSettingsModal extends Modal {
       cls: 'modal-button-container'
     });
     
-    // Add close button
+    // Add cancel button
     new ButtonComponent(buttonContainerEl)
-      .setButtonText('Close')
+      .setButtonText('Cancel')
+      .onClick(() => {
+        this.close();
+      });
+      
+    // Add save/close button with CTA styling
+    new ButtonComponent(buttonContainerEl)
+      .setButtonText('Save & Close')
       .setCta()
       .onClick(() => {
+        // Save if needed
         this.close();
       });
   }

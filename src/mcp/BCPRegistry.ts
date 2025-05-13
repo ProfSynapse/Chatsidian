@@ -95,8 +95,6 @@ export class BCPRegistry extends Component {
           packCount: this.packs.size,
           loadedCount: this.loadedPacks.size
         });
-        
-        new Notice('BCP Registry initialized with ' + this.loadedPacks.size + ' packs');
       });
     } catch (error) {
       console.error('Error initializing BCP registry:', error);
@@ -313,9 +311,6 @@ export class BCPRegistry extends Component {
       domain: pack.domain,
       toolCount: pack.tools.length
     });
-    
-    // User feedback
-    new Notice(`BCP ${pack.domain} registered`);
   }
   
   /**
@@ -501,9 +496,6 @@ export class BCPRegistry extends Component {
         context
       });
       
-      // User feedback
-      new Notice(`BCP ${domain} loaded successfully`);
-      
       return { 
         loaded: domain, 
         status: 'loaded',
@@ -586,9 +578,6 @@ export class BCPRegistry extends Component {
       this.events.trigger('bcpRegistry:packUnloaded', {
         domain
       });
-      
-      // User feedback
-      new Notice(`BCP ${domain} unloaded`);
       
       return { 
         unloaded: domain, 

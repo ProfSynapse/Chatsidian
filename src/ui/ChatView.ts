@@ -195,6 +195,21 @@ export class ChatView extends ItemView {
       cls: 'chatsidian-hamburger-toggle' 
     });
     setIcon(hamburgerEl, 'menu');
+    
+    // Add aria-label for accessibility
+    hamburgerEl.setAttribute('aria-label', 'Toggle sidebar');
+    hamburgerEl.setAttribute('role', 'button');
+    hamburgerEl.setAttribute('tabindex', '0');
+    
+    // Add keyboard support
+    hamburgerEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.toggleSidebar();
+      }
+    });
+    
+    // Add click event
     hamburgerEl.addEventListener('click', () => this.toggleSidebar());
     
     // Create title with flex layout to center it
@@ -212,31 +227,114 @@ export class ChatView extends ItemView {
     this.messageList = new MessageList(messageListContainerEl);
     this.addChild(this.messageList);
     
-    // Create model/agent selection container
-    const modelAgentContainerEl = messageAreaEl.createDiv({ cls: 'chatsidian-model-agent-container' });
+    // Create input controls container (model, agent, and send button)
+    const inputControlsContainerEl = messageAreaEl.createDiv({ cls: 'chatsidian-input-controls-container' });
     
-    // Initialize model selector component
-    this.modelSelectorComponent = new ModelSelectorComponent(
-      modelAgentContainerEl,
-      this.eventBus,
-      this.providerService,
-      this.settingsService,
-      this.agentSystem,
-      this.app,
-      {
-        showProviderSelector: true,
-        showModelCapabilities: false,
-        filterByProvider: true,
-        filterByToolSupport: true,
-        showBuiltInAgents: true,
-        showCustomAgents: true,
-        allowCreatingAgents: false,
-        allowEditingAgents: false,
-        allowDeletingAgents: false,
-        showSettingsButton: true
+    // Create model/agent selection container
+    const modelAgentContainerEl = inputControlsContainerEl.createDiv({ cls: 'chatsidian-model-agent-container' });
+    
+    // Create simplified model and agent selectors
+    const modelDropdownContainer = modelAgentContainerEl.createDiv({ cls: 'chatsidian-simple-model-container' });
+    const modelLabel = modelDropdownContainer.createDiv({ cls: 'chatsidian-simple-model-label' });
+    modelLabel.setText('Model:');
+    
+    // Create model dropdown directly
+    const modelDropdownEl = modelDropdownContainer.createEl('select', { cls: 'chatsidian-simple-model-dropdown' });
+    
+    // Create agent dropdown container
+    const agentDropdownContainer = modelAgentContainerEl.createDiv({ cls: 'chatsidian-simple-agent-container' });
+    const agentLabel = agentDropdownContainer.createDiv({ cls: 'chatsidian-simple-agent-label' });
+    agentLabel.setText('Agent:');
+    
+    // Create agent dropdown directly
+    const agentDropdownEl = agentDropdownContainer.createEl('select', { cls: 'chatsidian-simple-agent-dropdown' });
+    
+    // Create send button container
+    const sendButtonContainerEl = inputControlsContainerEl.createDiv({ cls: 'chatsidian-send-button-container' });
+    
+    // Create send button
+    const sendButtonEl = sendButtonContainerEl.createDiv({
+      cls: 'chatsidian-main-send-button'
+    });
+    setIcon(sendButtonEl, 'send');
+    
+    // Add send button event listener
+    sendButtonEl.addEventListener('click', () => {
+      // Find the input area and trigger submit
+      const inputArea = this.containerEl.querySelector('.chatsidian-input-area') as HTMLElement;
+      if (inputArea) {
+        const event = new Event('submit');
+        inputArea.dispatchEvent(event);
       }
-    );
-    this.addChild(this.modelSelectorComponent);
+    });
+    
+    // Initialize model dropdown options
+    const models = this.providerService.getAllModels();
+    models.sort((a, b) => a.name.localeCompare(b.name));
+    
+    for (const model of models) {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.text = `${model.name}`;
+      modelDropdownEl.appendChild(option);
+    }
+    
+    // Set default model
+    const defaultModelId = this.settingsService.getSettingsManager().getModel();
+    if (defaultModelId) {
+      modelDropdownEl.value = defaultModelId;
+    }
+    
+    // Initialize agent dropdown options
+    const agents = this.agentSystem.getAllAgentDefinitions();
+    agents.sort((a, b) => a.name.localeCompare(b.name));
+    
+    for (const agent of agents) {
+      const option = document.createElement('option');
+      option.value = agent.id;
+      option.text = agent.name;
+      agentDropdownEl.appendChild(option);
+    }
+    
+    // Set default agent
+    const defaultAgentId = this.settingsService.getSettingsManager().getSettings().defaultAgentId;
+    if (defaultAgentId) {
+      agentDropdownEl.value = defaultAgentId;
+    }
+    
+    // Add event listeners
+    modelDropdownEl.addEventListener('change', (e) => {
+      const selectedModelId = (e.target as HTMLSelectElement).value;
+      const selectedModel = this.providerService.findModelById(selectedModelId);
+      
+      if (selectedModel) {
+        this.selectedModel = selectedModel;
+        this.settingsService.getSettingsManager().updateSettings({
+          provider: selectedModel.provider,
+          model: selectedModel.id
+        });
+        
+        this.eventBus.emit(ModelSelectorComponentEventType.MODEL_SELECTED, {
+          model: selectedModel
+        });
+      }
+    });
+    
+    agentDropdownEl.addEventListener('change', (e) => {
+      const selectedAgentId = (e.target as HTMLSelectElement).value;
+      const selectedAgent = this.agentSystem.getAgentDefinition(selectedAgentId);
+      
+      if (selectedAgent) {
+        this.selectedAgent = selectedAgent;
+        this.settingsService.getSettingsManager().updateSettings({
+          defaultAgentId: selectedAgent.id
+        });
+        
+        this.eventBus.emit(ModelSelectorComponentEventType.AGENT_SELECTED, {
+          agent: selectedAgent
+        });
+      }
+    });
     
     // Create input area container
     const inputAreaContainerEl = messageAreaEl.createDiv({ cls: 'chatsidian-input-area-container' });
@@ -461,15 +559,8 @@ export class ChatView extends ItemView {
       this.containerEl.addClass('chatsidian-sidebar-closed');
     }
     
-    // Toggle the sidebar button active state
-    const hamburgerEl = this.containerEl.querySelector('.chatsidian-hamburger-toggle');
-    if (hamburgerEl) {
-      if (this.isSidebarOpen) {
-        hamburgerEl.addClass('active');
-      } else {
-        hamburgerEl.removeClass('active');
-      }
-    }
+    // The active state is now handled by CSS using parent-child selectors
+    // This ensures the hamburger stays attached to the pane state
   }
   
   /**

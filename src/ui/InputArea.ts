@@ -52,12 +52,12 @@ export class InputArea extends Component {
   private isDisabled: boolean = false;
   
   /**
-   * Character counter element
+   * Character counter element - removed
    */
-  private characterCounterEl: HTMLElement;
+  private characterCounterEl: HTMLElement | null = null;
   
   /**
-   * Typing indicator element
+   * Typing indicator element - removed
    */
   private typingIndicatorEl: HTMLElement | null = null;
   
@@ -97,51 +97,18 @@ export class InputArea extends Component {
       }
     });
     
-    // Create character counter
-    this.characterCounterEl = textareaContainerEl.createDiv({
-      cls: 'chatsidian-character-counter',
-      text: '0'
+    // Character counter removed
+    
+    // Typing indicator removed
+    
+    // Original button container and button removed - now using the main send button in the controls bar
+    // Create a hidden element to maintain the reference
+    this.sendButtonEl = this.containerEl.createDiv({
+      cls: 'chatsidian-send-button-hidden'
     });
+    this.sendButtonEl.style.display = 'none';
     
-    // Create typing indicator
-    if (this.containerEl.parentElement) {
-      this.typingIndicatorEl = this.containerEl.parentElement.createDiv({
-        cls: 'chatsidian-typing-indicator'
-      });
-      
-      this.typingIndicatorEl.createSpan({
-        text: 'Assistant is typing'
-      });
-      
-      const dotsContainer = this.typingIndicatorEl.createDiv({
-        cls: 'chatsidian-typing-indicator-dots'
-      });
-      
-      for (let i = 0; i < 3; i++) {
-        dotsContainer.createDiv({
-          cls: 'chatsidian-typing-indicator-dot'
-        });
-      }
-    }
-    
-    // Create button container
-    const buttonContainerEl = this.containerEl.createDiv({
-      cls: 'chatsidian-button-container'
-    });
-    
-    // Create send button
-    this.sendButtonEl = buttonContainerEl.createDiv({
-      cls: 'chatsidian-send-button'
-    });
-    setIcon(this.sendButtonEl, 'arrow-up');
-    
-    // Add keyboard shortcuts hint
-    if (this.containerEl.parentElement) {
-      this.containerEl.parentElement.createDiv({
-        cls: 'chatsidian-keyboard-hint',
-        text: 'Press Enter to send, Shift+Enter for new line, Esc to clear'
-      });
-    }
+    // Keyboard shortcuts hint removed
   }
   
   /**
@@ -153,10 +120,14 @@ export class InputArea extends Component {
       this.handleSubmit();
     });
     
-    // Handle textarea input for auto-resize and character count
+    // Handle custom submit event from main send button
+    this.containerEl.addEventListener('submit', () => {
+      this.handleSubmit();
+    });
+    
+    // Handle textarea input for auto-resize
     this.textareaEl.addEventListener('input', () => {
       this.autoResizeTextarea();
-      this.updateCharacterCount();
     });
     
     // Handle keyboard shortcuts
@@ -180,18 +151,10 @@ export class InputArea extends Component {
   }
   
   /**
-   * Update the character count display
+   * Update the character count display - now removed
    */
   private updateCharacterCount(): void {
-    const count = this.textareaEl.value.length;
-    this.characterCounterEl.setText(count.toString());
-    
-    // Add visual indication for longer messages
-    if (count > 500) {
-      this.characterCounterEl.addClass('chatsidian-character-count-high');
-    } else {
-      this.characterCounterEl.removeClass('chatsidian-character-count-high');
-    }
+    // Character counter functionality removed
   }
   
   /**
@@ -255,7 +218,7 @@ export class InputArea extends Component {
   private clearInput(): void {
     this.textareaEl.value = '';
     this.autoResizeTextarea();
-    this.updateCharacterCount();
+    // Character count update removed
   }
   
   /**
@@ -283,21 +246,17 @@ export class InputArea extends Component {
   }
   
   /**
-   * Show the typing indicator
+   * Show the typing indicator - functionality removed
    */
   showTypingIndicator(): void {
-    if (this.typingIndicatorEl) {
-      this.typingIndicatorEl.addClass('active');
-    }
+    // Typing indicator functionality removed
   }
   
   /**
-   * Hide the typing indicator
+   * Hide the typing indicator - functionality removed
    */
   hideTypingIndicator(): void {
-    if (this.typingIndicatorEl) {
-      this.typingIndicatorEl.removeClass('active');
-    }
+    // Typing indicator functionality removed
   }
   
   /**
@@ -317,6 +276,6 @@ export class InputArea extends Component {
   setValue(value: string): void {
     this.textareaEl.value = value;
     this.autoResizeTextarea();
-    this.updateCharacterCount();
+    // Character count update removed
   }
 }
