@@ -10,3 +10,4 @@ coverage/
 .env
 setup.test.js
 setup.test.ts
+**/.claude/settings.local.json

@@ -351,6 +351,13 @@ export default class ChatsidianPlugin extends Plugin {
     styleEl.href = this.app.vault.adapter.getResourcePath('styles.css');
     document.head.appendChild(styleEl);
     
+    // Trigger Style Settings plugin to parse our CSS variables
+    // This allows users to customize the plugin appearance
+    setTimeout(() => {
+      this.app.workspace.trigger('parse-style-settings');
+      this.debug('Style Settings triggered');
+    }, 500);
+    
     this.debug('Styles loaded');
   }
   

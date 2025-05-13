@@ -7,11 +7,12 @@
  * @file This file defines the ProviderSettings class for provider configuration.
  */
 
-import { Component, ButtonComponent, TextComponent, ToggleComponent, setIcon, Modal } from 'obsidian';
+import { Component, ButtonComponent, TextComponent, ToggleComponent, Modal, App, Setting } from 'obsidian';
 import { EventBus } from '../../core/EventBus';
 import { SettingsService } from '../../services/SettingsService';
 import { ProviderService } from '../../services/ProviderService';
 import { SettingsManager } from '../../core/SettingsManager';
+import { Notice } from '../../utils/obsidian-imports';
 
 /**
  * Event types for provider settings components
@@ -85,17 +86,6 @@ export class ProviderSettings extends Component {
     this.containerEl.empty();
     this.containerEl.addClass('chatsidian-provider-settings');
     
-    // Create header
-    const headerEl = this.containerEl.createDiv({
-      cls: 'chatsidian-provider-settings-header'
-    });
-    
-    // Create title
-    headerEl.createDiv({
-      cls: 'chatsidian-provider-settings-title',
-      text: 'Provider Settings'
-    });
-    
     // Create provider selector
     this.renderProviderSelector();
     
@@ -107,501 +97,357 @@ export class ProviderSettings extends Component {
    * Render the provider selector
    */
   private renderProviderSelector(): void {
-    const providerSelectorEl = this.containerEl.createDiv({
-      cls: 'chatsidian-provider-selector'
-    });
-    
-    // Get supported providers
-    const providers = this.providerService.getSupportedProviders();
-    
-    // Create provider buttons
-    for (const provider of providers) {
-      const providerButtonEl = providerSelectorEl.createDiv({
-        cls: `chatsidian-provider-button ${provider === this.selectedProvider ? 'chatsidian-provider-button-selected' : ''}`
-      });
-      
-      // Create provider icon
-      const providerIconEl = providerButtonEl.createDiv({
-        cls: 'chatsidian-provider-icon'
-      });
-      setIcon(providerIconEl, this.getProviderIcon(provider));
-      
-      // Create provider name
-      providerButtonEl.createDiv({
-        cls: 'chatsidian-provider-name',
-        text: this.formatProviderName(provider)
-      });
-      
-      // Add click handler
-      providerButtonEl.addEventListener('click', () => {
-        this.selectedProvider = provider;
-        this.render();
+    new Setting(this.containerEl)
+      .setName('Provider')
+      .setDesc('Select the AI provider to use')
+      .addDropdown(dropdown => {
+        // Get supported providers
+        const providers = this.providerService.getSupportedProviders();
         
-        // Emit provider changed event
-        this.eventBus.emit(ProviderSettingsEventType.SETTINGS_UPDATED, {
-          provider
+        // Add providers to dropdown
+        for (const provider of providers) {
+          dropdown.addOption(provider, this.formatProviderName(provider));
+        }
+        
+        // Set initial value
+        dropdown.setValue(this.selectedProvider);
+        
+        // Add change handler
+        dropdown.onChange(value => {
+          this.selectedProvider = value;
+          this.render();
+          
+          // Emit provider changed event
+          this.eventBus.emit(ProviderSettingsEventType.SETTINGS_UPDATED, {
+            provider: value
+          });
         });
       });
-    }
   }
   
   /**
    * Render the provider settings
    */
   private renderProviderSettings(): void {
-    const providerSettingsEl = this.containerEl.createDiv({
-      cls: 'chatsidian-provider-settings-content'
-    });
-    
-    // Create settings form
-    const formEl = providerSettingsEl.createDiv({
-      cls: 'chatsidian-provider-settings-form'
-    });
-    
     // Create API key field
-    const apiKeyContainerEl = formEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    apiKeyContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'API Key'
-    });
-    const apiKeyInputEl = apiKeyContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const apiKeyInput = new TextComponent(apiKeyInputEl);
-    apiKeyInput.inputEl.type = 'password';
-    apiKeyInput.inputEl.placeholder = 'Enter API key';
-    
-    // Set initial value
-    const currentSettings = this.settingsManager.getSettings();
-    const apiKey = currentSettings.provider === this.selectedProvider ? currentSettings.apiKey : '';
-    if (apiKey) {
-      apiKeyInput.setValue('••••••••••••••••••••••••••');
-    }
-    
-    // Add change handler
-    apiKeyInput.onChange(value => {
-      if (value && value !== '••••••••••••••••••••••••••') {
-        this.settingsManager.setApiKey(value);
+    new Setting(this.containerEl)
+      .setName('API Key')
+      .setDesc('Enter your API key for the selected provider')
+      .addText(text => {
+        // Set initial value
+        const currentSettings = this.settingsManager.getSettings();
+        const apiKey = currentSettings.provider === this.selectedProvider ? currentSettings.apiKey : '';
+        if (apiKey) {
+          text.setValue('••••••••••••••••••••••••••');
+        }
         
-        // Emit API key updated event
-        this.eventBus.emit(ProviderSettingsEventType.API_KEY_UPDATED, {
-          provider: this.selectedProvider,
-          apiKey: value
+        // Set input type to password
+        text.inputEl.type = 'password';
+        text.inputEl.placeholder = 'Enter API key';
+        
+        // Add change handler
+        text.onChange(value => {
+          if (value && value !== '••••••••••••••••••••••••••') {
+            this.settingsManager.setApiKey(value);
+            
+            // Emit API key updated event
+            this.eventBus.emit(ProviderSettingsEventType.API_KEY_UPDATED, {
+              provider: this.selectedProvider,
+              apiKey: value
+            });
+          }
         });
-      }
-    });
+      });
     
     // Create API endpoint field for custom providers
     if (this.selectedProvider === 'custom') {
-      const apiEndpointContainerEl = formEl.createDiv({
-        cls: 'chatsidian-form-group'
-      });
-      apiEndpointContainerEl.createDiv({
-        cls: 'chatsidian-form-label',
-        text: 'API Endpoint'
-      });
-      const apiEndpointInputEl = apiEndpointContainerEl.createDiv({
-        cls: 'chatsidian-form-input'
-      });
-      const apiEndpointInput = new TextComponent(apiEndpointInputEl);
-      apiEndpointInput.inputEl.placeholder = 'Enter API endpoint URL';
-      
-      // Set initial value
-      const currentSettings = this.settingsManager.getSettings();
-      const apiEndpoint = currentSettings.apiEndpoint || '';
-      if (apiEndpoint) {
-        apiEndpointInput.setValue(apiEndpoint);
-      }
-      
-      // Add change handler
-      apiEndpointInput.onChange(value => {
-        if (value) {
-          this.settingsManager.updateSettings({ apiEndpoint: value });
+      new Setting(this.containerEl)
+        .setName('API Endpoint')
+        .setDesc('Enter the endpoint URL for the custom provider')
+        .addText(text => {
+          // Set initial value
+          const currentSettings = this.settingsManager.getSettings();
+          const apiEndpoint = currentSettings.apiEndpoint || '';
+          if (apiEndpoint) {
+            text.setValue(apiEndpoint);
+          }
           
-          // Emit API endpoint updated event
-          this.eventBus.emit(ProviderSettingsEventType.API_ENDPOINT_UPDATED, {
-            provider: this.selectedProvider,
-            apiEndpoint: value
+          text.inputEl.placeholder = 'Enter API endpoint URL';
+          
+          // Add change handler
+          text.onChange(value => {
+            if (value) {
+              this.settingsManager.updateSettings({ apiEndpoint: value });
+              
+              // Emit API endpoint updated event
+              this.eventBus.emit(ProviderSettingsEventType.API_ENDPOINT_UPDATED, {
+                provider: this.selectedProvider,
+                apiEndpoint: value
+              });
+            }
           });
-        }
-      });
+        });
     }
     
     // Create provider-specific settings
-    this.renderProviderSpecificSettings(formEl);
-    
-    // Create save button
-    const saveButtonEl = formEl.createDiv({
-      cls: 'chatsidian-form-buttons'
-    });
-    const saveButton = new ButtonComponent(saveButtonEl)
-      .setButtonText('Save')
-      .setCta()
-      .onClick(() => {
-        // Settings are automatically saved when updated
-        
-        // Show success message
-        const successEl = formEl.createDiv({
-          cls: 'chatsidian-form-success',
-          text: 'Settings saved successfully!'
-        });
-        
-        // Remove success message after 3 seconds
-        setTimeout(() => {
-          successEl.remove();
-        }, 3000);
-      });
+    this.renderProviderSpecificSettings();
   }
   
   /**
    * Render provider-specific settings
-   * 
-   * @param containerEl - The container element to render the settings in
    */
-  private renderProviderSpecificSettings(containerEl: HTMLElement): void {
+  private renderProviderSpecificSettings(): void {
     // Add provider-specific settings based on the selected provider
     switch (this.selectedProvider) {
       case 'anthropic':
-        this.renderAnthropicSettings(containerEl);
+        this.renderAnthropicSettings();
         break;
       case 'openai':
-        this.renderOpenAISettings(containerEl);
+        this.renderOpenAISettings();
         break;
       case 'google':
-        this.renderGoogleSettings(containerEl);
+        this.renderGoogleSettings();
         break;
       case 'openrouter':
-        this.renderOpenRouterSettings(containerEl);
+        this.renderOpenRouterSettings();
         break;
       case 'custom':
-        this.renderCustomSettings(containerEl);
+        this.renderCustomSettings();
         break;
     }
   }
   
   /**
    * Render Anthropic-specific settings
-   * 
-   * @param containerEl - The container element to render the settings in
    */
-  private renderAnthropicSettings(containerEl: HTMLElement): void {
+  private renderAnthropicSettings(): void {
     // Create version field
-    const versionContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    versionContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'API Version'
-    });
-    const versionInputEl = versionContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const versionInput = new TextComponent(versionInputEl);
-    versionInput.inputEl.placeholder = 'Enter API version (e.g., 2023-06-01)';
-    
-    // Set initial value
-    const settings = this.settingsManager.getSettings();
-    const version = settings.provider === 'anthropic' ? 
-      (settings as any).apiVersion || '' : '';
-    if (version) {
-      versionInput.setValue(version);
-    }
-    
-    // Add change handler
-    versionInput.onChange(value => {
-      if (value) {
-        const updates = { ...this.settingsManager.getSettings() };
-        (updates as any).apiVersion = value;
-        this.settingsManager.updateSettings(updates);
-      }
-    });
+    new Setting(this.containerEl)
+      .setName('API Version')
+      .setDesc('Enter the Anthropic API version to use')
+      .addText(text => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const version = settings.provider === 'anthropic' ? 
+          (settings as any).apiVersion || '' : '';
+        if (version) {
+          text.setValue(version);
+        }
+        
+        text.inputEl.placeholder = 'Enter API version (e.g., 2023-06-01)';
+        
+        // Add change handler
+        text.onChange(value => {
+          if (value) {
+            const updates = { ...this.settingsManager.getSettings() };
+            (updates as any).apiVersion = value;
+            this.settingsManager.updateSettings(updates);
+          }
+        });
+      });
   }
   
   /**
    * Render OpenAI-specific settings
-   * 
-   * @param containerEl - The container element to render the settings in
    */
-  private renderOpenAISettings(containerEl: HTMLElement): void {
+  private renderOpenAISettings(): void {
     // Create organization field
-    const orgContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    orgContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Organization ID (optional)'
-    });
-    const orgInputEl = orgContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const orgInput = new TextComponent(orgInputEl);
-    orgInput.inputEl.placeholder = 'Enter organization ID';
-    
-    // Set initial value
-    const settings = this.settingsManager.getSettings();
-    const org = settings.provider === 'openai' ? 
-      (settings as any).organization || '' : '';
-    if (org) {
-      orgInput.setValue(org);
-    }
-    
-    // Add change handler
-    orgInput.onChange(value => {
-      const updates = { ...this.settingsManager.getSettings() };
-      (updates as any).organization = value;
-      this.settingsManager.updateSettings(updates);
-    });
+    new Setting(this.containerEl)
+      .setName('Organization ID')
+      .setDesc('Enter your OpenAI organization ID (optional)')
+      .addText(text => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const org = settings.provider === 'openai' ? 
+          (settings as any).organization || '' : '';
+        if (org) {
+          text.setValue(org);
+        }
+        
+        text.inputEl.placeholder = 'Enter organization ID';
+        
+        // Add change handler
+        text.onChange(value => {
+          const updates = { ...this.settingsManager.getSettings() };
+          (updates as any).organization = value;
+          this.settingsManager.updateSettings(updates);
+        });
+      });
     
     // Create beta features toggle
-    const betaContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    betaContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Enable Beta Features'
-    });
-    const betaInputEl = betaContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const betaToggle = new ToggleComponent(betaInputEl);
-    
-    // Set initial value
-    const beta = settings.provider === 'openai' ? 
-      (settings as any).enableBeta === true : false;
-    betaToggle.setValue(beta);
-    
-    // Add change handler
-    betaToggle.onChange(value => {
-      const updates = { ...this.settingsManager.getSettings() };
-      (updates as any).enableBeta = value;
-      this.settingsManager.updateSettings(updates);
-    });
+    new Setting(this.containerEl)
+      .setName('Enable Beta Features')
+      .setDesc('Toggle to enable OpenAI beta features')
+      .addToggle(toggle => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const beta = settings.provider === 'openai' ? 
+          (settings as any).enableBeta === true : false;
+        toggle.setValue(beta);
+        
+        // Add change handler
+        toggle.onChange(value => {
+          const updates = { ...this.settingsManager.getSettings() };
+          (updates as any).enableBeta = value;
+          this.settingsManager.updateSettings(updates);
+        });
+      });
   }
   
   /**
    * Render Google-specific settings
-   * 
-   * @param containerEl - The container element to render the settings in
    */
-  private renderGoogleSettings(containerEl: HTMLElement): void {
+  private renderGoogleSettings(): void {
     // Create project ID field
-    const projectContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    projectContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Project ID'
-    });
-    const projectInputEl = projectContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const projectInput = new TextComponent(projectInputEl);
-    projectInput.inputEl.placeholder = 'Enter Google Cloud project ID';
-    
-    // Set initial value
-    const settings = this.settingsManager.getSettings();
-    const project = settings.provider === 'google' ? 
-      (settings as any).projectId || '' : '';
-    if (project) {
-      projectInput.setValue(project);
-    }
-    
-    // Add change handler
-    projectInput.onChange(value => {
-      if (value) {
-        const updates = { ...this.settingsManager.getSettings() };
-        (updates as any).projectId = value;
-        this.settingsManager.updateSettings(updates);
-      }
-    });
+    new Setting(this.containerEl)
+      .setName('Project ID')
+      .setDesc('Enter your Google Cloud project ID')
+      .addText(text => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const project = settings.provider === 'google' ? 
+          (settings as any).projectId || '' : '';
+        if (project) {
+          text.setValue(project);
+        }
+        
+        text.inputEl.placeholder = 'Enter Google Cloud project ID';
+        
+        // Add change handler
+        text.onChange(value => {
+          if (value) {
+            const updates = { ...this.settingsManager.getSettings() };
+            (updates as any).projectId = value;
+            this.settingsManager.updateSettings(updates);
+          }
+        });
+      });
     
     // Create location field
-    const locationContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    locationContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Location'
-    });
-    const locationInputEl = locationContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const locationInput = new TextComponent(locationInputEl);
-    locationInput.inputEl.placeholder = 'Enter location (e.g., us-central1)';
-    
-    // Set initial value
-    const location = settings.provider === 'google' ? 
-      (settings as any).location || '' : '';
-    if (location) {
-      locationInput.setValue(location);
-    }
-    
-    // Add change handler
-    locationInput.onChange(value => {
-      if (value) {
-        const updates = { ...this.settingsManager.getSettings() };
-        (updates as any).location = value;
-        this.settingsManager.updateSettings(updates);
-      }
-    });
+    new Setting(this.containerEl)
+      .setName('Location')
+      .setDesc('Enter the Google Cloud location')
+      .addText(text => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const location = settings.provider === 'google' ? 
+          (settings as any).location || '' : '';
+        if (location) {
+          text.setValue(location);
+        }
+        
+        text.inputEl.placeholder = 'Enter location (e.g., us-central1)';
+        
+        // Add change handler
+        text.onChange(value => {
+          if (value) {
+            const updates = { ...this.settingsManager.getSettings() };
+            (updates as any).location = value;
+            this.settingsManager.updateSettings(updates);
+          }
+        });
+      });
   }
   
   /**
    * Render OpenRouter-specific settings
-   * 
-   * @param containerEl - The container element to render the settings in
    */
-  private renderOpenRouterSettings(containerEl: HTMLElement): void {
+  private renderOpenRouterSettings(): void {
     // Create referral ID field
-    const referralContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    referralContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Referral ID (optional)'
-    });
-    const referralInputEl = referralContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const referralInput = new TextComponent(referralInputEl);
-    referralInput.inputEl.placeholder = 'Enter referral ID';
-    
-    // Set initial value
-    const settings = this.settingsManager.getSettings();
-    const referral = settings.provider === 'openrouter' ? 
-      (settings as any).referralId || '' : '';
-    if (referral) {
-      referralInput.setValue(referral);
-    }
-    
-    // Add change handler
-    referralInput.onChange(value => {
-      const updates = { ...this.settingsManager.getSettings() };
-      (updates as any).referralId = value;
-      this.settingsManager.updateSettings(updates);
-    });
+    new Setting(this.containerEl)
+      .setName('Referral ID')
+      .setDesc('Enter your OpenRouter referral ID (optional)')
+      .addText(text => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const referral = settings.provider === 'openrouter' ? 
+          (settings as any).referralId || '' : '';
+        if (referral) {
+          text.setValue(referral);
+        }
+        
+        text.inputEl.placeholder = 'Enter referral ID';
+        
+        // Add change handler
+        text.onChange(value => {
+          const updates = { ...this.settingsManager.getSettings() };
+          (updates as any).referralId = value;
+          this.settingsManager.updateSettings(updates);
+        });
+      });
   }
   
   /**
    * Render custom provider settings
-   * 
-   * @param containerEl - The container element to render the settings in
    */
-  private renderCustomSettings(containerEl: HTMLElement): void {
+  private renderCustomSettings(): void {
     // Create model format field
-    const formatContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    formatContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Model Format'
-    });
-    const formatInputEl = formatContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const formatInput = new TextComponent(formatInputEl);
-    formatInput.inputEl.placeholder = 'Enter model format (openai, anthropic, etc.)';
-    
-    // Set initial value
-    const settings = this.settingsManager.getSettings();
-    const format = settings.provider === 'custom' ? 
-      (settings as any).modelFormat || '' : '';
-    if (format) {
-      formatInput.setValue(format);
-    }
-    
-    // Add change handler
-    formatInput.onChange(value => {
-      if (value) {
-        const updates = { ...this.settingsManager.getSettings() };
-        (updates as any).modelFormat = value;
-        this.settingsManager.updateSettings(updates);
-      }
-    });
+    new Setting(this.containerEl)
+      .setName('Model Format')
+      .setDesc('Enter the format used by the custom model')
+      .addText(text => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const format = settings.provider === 'custom' ? 
+          (settings as any).modelFormat || '' : '';
+        if (format) {
+          text.setValue(format);
+        }
+        
+        text.inputEl.placeholder = 'Enter model format (openai, anthropic, etc.)';
+        
+        // Add change handler
+        text.onChange(value => {
+          if (value) {
+            const updates = { ...this.settingsManager.getSettings() };
+            (updates as any).modelFormat = value;
+            this.settingsManager.updateSettings(updates);
+          }
+        });
+      });
     
     // Create headers field
-    const headersContainerEl = containerEl.createDiv({
-      cls: 'chatsidian-form-group'
-    });
-    headersContainerEl.createDiv({
-      cls: 'chatsidian-form-label',
-      text: 'Custom Headers (JSON)'
-    });
-    const headersInputEl = headersContainerEl.createDiv({
-      cls: 'chatsidian-form-input'
-    });
-    const headersInput = document.createElement('textarea');
-    headersInput.className = 'chatsidian-textarea';
-    headersInput.rows = 3;
-    headersInput.placeholder = '{"header1": "value1", "header2": "value2"}';
-    
-    // Set initial value
-    const headers = settings.provider === 'custom' ? 
-      (settings as any).headers || '' : '';
-    if (headers) {
-      try {
-        headersInput.value = JSON.stringify(JSON.parse(headers), null, 2);
-      } catch (e) {
-        headersInput.value = headers;
-      }
-    }
-    
-    // Add change handler
-    headersInput.addEventListener('change', () => {
-      try {
-        // Validate JSON
-        const value = headersInput.value.trim();
-        if (value) {
-          JSON.parse(value);
-          const updates = { ...this.settingsManager.getSettings() };
-          (updates as any).headers = value;
-          this.settingsManager.updateSettings(updates);
-        } else {
-          const updates = { ...this.settingsManager.getSettings() };
-          (updates as any).headers = '';
-          this.settingsManager.updateSettings(updates);
+    new Setting(this.containerEl)
+      .setName('Custom Headers')
+      .setDesc('Enter custom headers as JSON')
+      .addTextArea(textarea => {
+        // Set initial value
+        const settings = this.settingsManager.getSettings();
+        const headers = settings.provider === 'custom' ? 
+          (settings as any).headers || '' : '';
+        if (headers) {
+          try {
+            textarea.setValue(JSON.stringify(JSON.parse(headers), null, 2));
+          } catch (e) {
+            textarea.setValue(headers);
+          }
         }
-      } catch (e) {
-        // Show error message
-        const errorEl = headersContainerEl.createDiv({
-          cls: 'chatsidian-form-error',
-          text: 'Invalid JSON format'
-        });
         
-        // Remove error message after 3 seconds
-        setTimeout(() => {
-          errorEl.remove();
-        }, 3000);
-      }
-    });
-    
-    headersInputEl.appendChild(headersInput);
-  }
-  
-  /**
-   * Get the icon for a provider
-   * 
-   * @param provider - The provider to get the icon for
-   * @returns The icon name
-   */
-  private getProviderIcon(provider: string): string {
-    // Get the icon for the provider
-    switch (provider.toLowerCase()) {
-      case 'openai':
-        return 'bot';
-      case 'anthropic':
-        return 'message-square';
-      case 'google':
-        return 'search';
-      case 'openrouter':
-        return 'globe';
-      case 'custom':
-        return 'settings';
-      default:
-        return 'cloud';
-    }
+        textarea.inputEl.rows = 3;
+        textarea.inputEl.placeholder = '{"header1": "value1", "header2": "value2"}';
+        textarea.inputEl.style.fontFamily = 'var(--font-monospace)';
+        textarea.inputEl.style.fontSize = 'var(--font-smaller)';
+        
+        // Add change handler
+        textarea.onChange(value => {
+          try {
+            // Validate JSON
+            if (value.trim()) {
+              JSON.parse(value);
+              const updates = { ...this.settingsManager.getSettings() };
+              (updates as any).headers = value;
+              this.settingsManager.updateSettings(updates);
+            } else {
+              const updates = { ...this.settingsManager.getSettings() };
+              (updates as any).headers = '';
+              this.settingsManager.updateSettings(updates);
+            }
+          } catch (e) {
+            // Show error using Obsidian's native notification
+            new Notice('Invalid JSON format');
+          }
+        });
+      });
   }
   
   /**
@@ -683,7 +529,7 @@ export class ProviderSettingsModal extends Modal {
    * @param providerService - The provider service for accessing provider information
    */
   constructor(
-    app: any,
+    app: App,
     eventBus: EventBus,
     settingsService: SettingsService,
     providerService: ProviderService
@@ -700,14 +546,15 @@ export class ProviderSettingsModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     
-    // Set title
+    // Set modal title
     contentEl.createEl('h2', {
-      text: 'Provider Settings'
+      text: 'Provider Settings',
+      cls: 'modal-title'
     });
     
     // Create provider settings container
     const providerSettingsContainerEl = contentEl.createDiv({
-      cls: 'chatsidian-provider-settings-modal-container'
+      cls: 'modal-content'
     });
     
     // Initialize provider settings component
@@ -719,12 +566,13 @@ export class ProviderSettingsModal extends Modal {
       this.settingsService.getSettingsManager().getProvider()
     );
     
-    // Create close button
-    const closeButtonEl = contentEl.createDiv({
-      cls: 'chatsidian-modal-buttons'
+    // Create button container using Obsidian's standard modal buttons pattern
+    const buttonContainerEl = contentEl.createDiv({
+      cls: 'modal-button-container'
     });
     
-    const closeButton = new ButtonComponent(closeButtonEl)
+    // Add close button
+    new ButtonComponent(buttonContainerEl)
       .setButtonText('Close')
       .setCta()
       .onClick(() => {

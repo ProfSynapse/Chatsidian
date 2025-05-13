@@ -1,51 +1,205 @@
 /* Chatsidian Plugin Styles */
 
-/* Main container */
+/* @settings
+name: Chatsidian
+id: chatsidian
+settings:
+  - id: chatsidian-appearance
+    title: Appearance
+    type: heading
+    level: 1
+  - id: chatsidian-message-spacing
+    title: Message Spacing
+    description: Adjust the spacing between messages
+    type: variable-number
+    default: 12
+    format: px
+  - id: chatsidian-message-padding
+    title: Message Padding
+    description: Adjust the padding within messages
+    type: variable-number
+    default: 12
+    format: px
+  - id: chatsidian-user-message-color
+    title: User Message Background
+    description: Background color for user messages
+    type: variable-color
+    format: hex
+    default: var(--background-secondary)
+  - id: chatsidian-assistant-message-color
+    title: Assistant Message Background
+    description: Background color for assistant messages
+    type: variable-color
+    format: hex
+    default: var(--background-primary-alt)
+  - id: chatsidian-system-message-color
+    title: System Message Background
+    description: Background color for system messages
+    type: variable-color
+    format: hex
+    default: var(--background-modifier-border)
+  - id: chatsidian-avatar-user-color
+    title: User Avatar Color
+    description: Background color for user avatars
+    type: variable-color
+    format: hex
+    default: var(--text-accent)
+  - id: chatsidian-avatar-assistant-color
+    title: Assistant Avatar Color
+    description: Background color for assistant avatars
+    type: variable-color
+    format: hex
+    default: var(--interactive-accent)
+*/
+
+/* CSS Variables */
+:root {
+  --chatsidian-message-spacing: 12px;
+  --chatsidian-message-padding: 12px;
+  --chatsidian-user-message-color: var(--background-secondary);
+  --chatsidian-assistant-message-color: var(--background-primary-alt);
+  --chatsidian-system-message-color: var(--background-modifier-border);
+  --chatsidian-avatar-user-color: var(--text-accent);
+  --chatsidian-avatar-assistant-color: var(--interactive-accent);
+}
+
+/* Layout containers - using Obsidian flex layouts */
 .chatsidian-container {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.chatsidian-sidebar-container {
+  width: 250px;
+  border-right: 1px solid var(--divider-color);
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: 100%;
 }
 
-/* Message list */
-.chatsidian-message-list {
+.chatsidian-content-container {
   flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
 }
 
-/* Message */
+.chatsidian-header {
+  padding: var(--size-4-2);
+  border-bottom: 1px solid var(--divider-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chatsidian-header-title {
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-medium);
+}
+
+/* Sidebar toggle */
+.chatsidian-hamburger-toggle {
+  position: absolute;
+  top: var(--size-4-2);
+  left: var(--size-4-2);
+  background-color: var(--interactive-normal);
+  border-radius: var(--radius-s);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.chatsidian-hamburger-toggle:hover {
+  background-color: var(--interactive-hover);
+}
+
+/* Conversation list */
+.chatsidian-conversation-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: var(--size-4-1);
+}
+
+.chatsidian-conversation-list-header {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--size-4-1);
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.chatsidian-conversation-item {
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  margin-bottom: var(--size-4-1);
+}
+
+.chatsidian-conversation-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.chatsidian-conversation-item.active {
+  background-color: var(--background-modifier-active);
+}
+
+.chatsidian-conversation-title {
+  font-weight: var(--font-medium);
+  margin-bottom: var(--size-4-1);
+}
+
+.chatsidian-conversation-date {
+  font-size: var(--font-smaller);
+  color: var(--text-muted);
+}
+
+/* Message display */
+.chatsidian-message-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chatsidian-message-list-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--size-4-3);
+}
+
+.chatsidian-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--chatsidian-message-spacing);
+}
+
 .chatsidian-message {
   display: flex;
-  gap: 0.75rem;
-  padding: 0.5rem;
-  border-radius: 8px;
-  animation: fade-in 0.3s ease-in-out;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  gap: var(--size-4-2);
+  padding: var(--chatsidian-message-padding);
+  border-radius: var(--radius-m);
 }
 
 .chatsidian-message-user {
-  background-color: var(--background-secondary);
+  background-color: var(--chatsidian-user-message-color);
 }
 
 .chatsidian-message-assistant {
-  background-color: var(--background-primary-alt);
+  background-color: var(--chatsidian-assistant-message-color);
 }
 
 .chatsidian-message-system {
-  background-color: var(--background-modifier-border);
+  background-color: var(--chatsidian-system-message-color);
   font-style: italic;
 }
 
-/* Message avatar */
 .chatsidian-message-avatar {
   width: 32px;
   height: 32px;
@@ -58,26 +212,29 @@
 }
 
 .chatsidian-message-user .chatsidian-message-avatar {
-  background-color: var(--text-accent);
+  background-color: var(--chatsidian-avatar-user-color);
+}
+
+.chatsidian-message-assistant .chatsidian-message-avatar {
+  background-color: var(--chatsidian-avatar-assistant-color);
 }
 
 .chatsidian-avatar-icon {
-  color: white;
-  font-size: 0.8rem;
-  font-weight: bold;
+  color: var(--text-on-accent);
+  font-size: var(--font-smaller);
+  font-weight: var(--font-medium);
 }
 
-/* Message content */
 .chatsidian-message-content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--size-4-1);
 }
 
 .chatsidian-message-role {
-  font-weight: bold;
-  font-size: 0.9rem;
+  font-weight: var(--font-medium);
+  font-size: var(--font-smaller);
   color: var(--text-muted);
 }
 
@@ -93,59 +250,25 @@
   margin-bottom: 0;
 }
 
-/* Code blocks */
-.chatsidian-message pre {
-  position: relative;
-  padding: 1rem;
-  margin: 0.5rem 0;
-  border-radius: 4px;
-  background-color: var(--code-background);
-  overflow-x: auto;
-}
-
-.chatsidian-message code {
-  font-family: var(--font-monospace);
-  font-size: 0.9em;
-}
-
-.copy-code-button {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  background-color: var(--interactive-accent);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-
-.copy-code-button:hover {
-  opacity: 1;
-}
-
 /* Input area */
-.chatsidian-input-container {
-  padding: 1rem;
-  border-top: 1px solid var(--background-modifier-border);
+.chatsidian-input-area-container {
+  border-top: 1px solid var(--divider-color);
+  padding: var(--size-4-3);
   background-color: var(--background-primary);
 }
 
 .chatsidian-input-area {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--size-4-2);
 }
 
 .chatsidian-textarea {
   width: 100%;
   min-height: 80px;
   resize: vertical;
-  padding: 0.75rem;
-  border-radius: 8px;
+  padding: var(--size-4-2);
+  border-radius: var(--radius-m);
   border: 1px solid var(--background-modifier-border);
   background-color: var(--background-primary);
   font-family: var(--font-text);
@@ -158,21 +281,26 @@
   box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
+.chatsidian-textarea:focus-visible {
+  box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+}
+
 .chatsidian-button-container {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: var(--size-4-1);
 }
 
+/* Use Obsidian's button styles */
 .chatsidian-send-button {
-  padding: 0.5rem 1rem;
-  background-color: var(--interactive-accent);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-weight: bold;
   cursor: pointer;
-  transition: background-color 0.2s;
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  padding: var(--size-4-1) var(--size-4-3);
+  border-radius: var(--radius-s);
+  border: none;
 }
 
 .chatsidian-send-button:hover {
@@ -181,309 +309,171 @@
 
 .chatsidian-send-button:disabled {
   background-color: var(--background-modifier-border);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
-/* Conversation list */
-.chatsidian-conversation-list {
+/* Model selector */
+.chatsidian-model-agent-selection {
+  display: flex;
+  gap: var(--size-4-2);
+  align-items: center;
+}
+
+.chatsidian-model-selector, 
+.chatsidian-agent-selector {
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: var(--size-4-1);
+  font-size: var(--font-ui-small);
+}
+
+.chatsidian-model-selector:focus, 
+.chatsidian-agent-selector:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+/* Tool call visualizations - using Obsidian's callout styles for inspiration */
+.chatsidian-tool-call-list {
+  margin-top: var(--size-4-2);
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem;
-}
-
-.chatsidian-conversation-item {
-  padding: 0.75rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.chatsidian-conversation-item:hover {
-  background-color: var(--background-secondary);
-}
-
-.chatsidian-conversation-item.active {
-  background-color: var(--background-modifier-border);
-}
-
-.chatsidian-conversation-title {
-  font-weight: bold;
-  margin-bottom: 0.25rem;
-}
-
-.chatsidian-conversation-date {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-/* Model selector */
-.chatsidian-model-selector {
-  padding: 1rem;
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.chatsidian-model-selector-label {
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.chatsidian-model-dropdown {
-  width: 100%;
-  padding: 0.5rem;
-  border-radius: 4px;
-  border: 1px solid var(--background-modifier-border);
-  background-color: var(--background-primary);
-}
-
-/* Tool calls */
-.chatsidian-tool-calls {
-  margin-top: 1rem;
-  border-top: 1px solid var(--background-modifier-border);
-  padding-top: 0.5rem;
+  gap: var(--size-4-2);
 }
 
 .chatsidian-tool-call {
-  margin-bottom: 0.5rem;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-m);
   overflow: hidden;
+  background-color: var(--background-secondary);
 }
 
 .chatsidian-tool-call-header {
   display: flex;
   align-items: center;
-  padding: 0.5rem;
-  background-color: var(--background-secondary);
-  font-weight: bold;
+  padding: var(--size-4-2);
+  background-color: var(--background-secondary-alt);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  cursor: pointer;
 }
 
 .chatsidian-tool-call-name {
   flex: 1;
+  font-family: var(--font-monospace);
 }
 
 .chatsidian-tool-call-status {
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  font-weight: normal;
+  font-size: var(--font-smaller);
+  padding: 2px var(--size-4-1);
+  border-radius: var(--radius-s);
 }
 
 .chatsidian-tool-call-status-pending {
   background-color: var(--text-muted);
-  color: white;
+  color: var(--text-on-accent);
 }
 
 .chatsidian-tool-call-status-success {
   background-color: var(--interactive-success);
-  color: white;
+  color: var(--text-on-accent);
 }
 
 .chatsidian-tool-call-status-error {
   background-color: var(--text-error);
-  color: white;
-}
-
-.chatsidian-tool-call-args,
-.chatsidian-tool-call-result {
-  padding: 0.5rem;
-  background-color: var(--background-primary);
-}
-
-.chatsidian-tool-call-error {
-  color: var(--text-error);
-  font-weight: bold;
-}
-
-/* Enhanced Tool Call Visualization */
-.chatsidian-tool-call-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.chatsidian-tool-call-list-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem;
-  background-color: var(--background-secondary-alt);
-  border-radius: 4px;
-}
-
-.chatsidian-tool-call-list-title {
-  font-weight: bold;
-  font-size: 0.9rem;
-}
-
-.chatsidian-tool-call-list-controls {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.chatsidian-tool-call-list-toggle-all {
-  padding: 0.25rem 0.5rem;
-  background-color: var(--interactive-normal);
-  color: var(--text-normal);
-  border: none;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.chatsidian-tool-call {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  overflow: hidden;
-  background-color: var(--background-primary);
-}
-
-.chatsidian-tool-call-header {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem;
-  background-color: var(--background-secondary-alt);
-  cursor: pointer;
-}
-
-.chatsidian-tool-call-toggle {
-  margin-right: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.chatsidian-tool-call-name {
-  flex: 1;
-  font-weight: bold;
-  font-family: var(--font-monospace);
-  font-size: 0.9rem;
-}
-
-.chatsidian-tool-call-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.chatsidian-tool-call-copy-btn,
-.chatsidian-tool-call-retry-btn,
-.chatsidian-tool-call-copy-result-btn {
-  padding: 0.25rem 0.5rem;
-  background-color: var(--interactive-normal);
-  color: var(--text-normal);
-  border: none;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.chatsidian-tool-call-retry-btn {
-  background-color: var(--interactive-accent);
-  color: white;
+  color: var(--text-on-accent);
 }
 
 .chatsidian-tool-call-content {
-  padding: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.chatsidian-tool-call-collapsed {
+  padding: var(--size-4-2);
   display: none;
 }
 
+.chatsidian-tool-call-expanded .chatsidian-tool-call-content {
+  display: block;
+}
+
 .chatsidian-tool-call-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  margin-bottom: var(--size-4-2);
 }
 
 .chatsidian-tool-call-section-title {
-  font-weight: bold;
-  font-size: 0.9rem;
+  font-weight: var(--font-medium);
+  font-size: var(--font-smaller);
   color: var(--text-muted);
+  margin-bottom: var(--size-4-1);
 }
 
 .chatsidian-tool-call-json {
   background-color: var(--code-background);
-  border-radius: 4px;
-  padding: 0.5rem;
-  margin: 0;
+  border-radius: var(--radius-s);
+  padding: var(--size-4-2);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
   overflow-x: auto;
 }
 
-.chatsidian-tool-call-text {
-  padding: 0.5rem;
-  background-color: var(--background-secondary);
-  border-radius: 4px;
-  white-space: pre-wrap;
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .chatsidian-container {
+    flex-direction: column;
+  }
+  
+  .chatsidian-sidebar-container {
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--divider-color);
+  }
+  
+  .chatsidian-model-agent-selection {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
-.chatsidian-tool-call-markdown {
-  padding: 0.5rem;
-  background-color: var(--background-secondary);
-  border-radius: 4px;
-}
-
-.chatsidian-tool-call-file {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background-color: var(--background-secondary);
-  border-radius: 4px;
-}
-
-.chatsidian-tool-call-file-icon {
-  font-size: 1.5rem;
-}
-
-.chatsidian-tool-call-file-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.chatsidian-tool-call-file-path {
-  font-weight: bold;
-  font-family: var(--font-monospace);
-  font-size: 0.9rem;
-}
-
-.chatsidian-tool-call-file-preview {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  max-height: 100px;
-  overflow-y: auto;
-}
-
-.chatsidian-tool-call-array-summary {
-  font-weight: bold;
-  margin-bottom: 0.25rem;
-}
-
-.chatsidian-tool-call-array-list {
-  margin: 0;
-  padding-left: 1.5rem;
-}
-
-/* Status indicators */
+/* Status badge classes */
 .chatsidian-tool-call-pending {
-  border-left: 4px solid var(--text-muted);
+  border-left: 3px solid var(--text-muted);
 }
 
 .chatsidian-tool-call-success {
-  border-left: 4px solid var(--interactive-success);
+  border-left: 3px solid var(--interactive-success);
 }
 
 .chatsidian-tool-call-error {
-  border-left: 4px solid var(--text-error);
+  border-left: 3px solid var(--text-error);
+}
+
+/* Sidebar open/close logic */
+.chatsidian-sidebar-open .chatsidian-sidebar-container {
+  display: block;
+}
+
+.chatsidian-sidebar-closed .chatsidian-sidebar-container {
+  display: none;
+}
+
+/* Accessibility improvements */
+.chatsidian-textarea:focus,
+.chatsidian-send-button:focus,
+.chatsidian-model-selector:focus,
+.chatsidian-agent-selector:focus {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+/* For screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
