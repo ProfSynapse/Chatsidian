@@ -187,45 +187,20 @@ export class ChatView extends ItemView {
     );
     this.addChild(conversationList);
     
+    // Create header with conversation title
+    const headerEl = this.contentContainerEl.createDiv({ cls: 'chatsidian-header' });
+    
     // Create hamburger menu toggle for sidebar
-    const hamburgerEl = this.contentContainerEl.createDiv({ 
+    const hamburgerEl = headerEl.createDiv({ 
       cls: 'chatsidian-hamburger-toggle' 
     });
     setIcon(hamburgerEl, 'menu');
     hamburgerEl.addEventListener('click', () => this.toggleSidebar());
     
-    // Create header with model/agent selection
-    const headerEl = this.contentContainerEl.createDiv({ cls: 'chatsidian-header' });
-    
-    // Create title
-    const titleEl = headerEl.createDiv({ cls: 'chatsidian-header-title' });
+    // Create title with flex layout to center it
+    const titleContainerEl = headerEl.createDiv({ cls: 'chatsidian-header-title-container' });
+    const titleEl = titleContainerEl.createDiv({ cls: 'chatsidian-header-title' });
     titleEl.setText('Chatsidian Chat Interface');
-    
-    // Create model/agent selection container
-    const selectionContainerEl = headerEl.createDiv({ cls: 'chatsidian-model-agent-selection' });
-    
-    // Initialize model selector component
-    this.modelSelectorComponent = new ModelSelectorComponent(
-      selectionContainerEl,
-      this.eventBus,
-      this.providerService,
-      this.settingsService,
-      this.agentSystem,
-      this.app,
-      {
-        showProviderSelector: true,
-        showModelCapabilities: true,
-        filterByProvider: true,
-        filterByToolSupport: true,
-        showBuiltInAgents: true,
-        showCustomAgents: true,
-        allowCreatingAgents: true,
-        allowEditingAgents: true,
-        allowDeletingAgents: true,
-        showSettingsButton: true
-      }
-    );
-    this.addChild(this.modelSelectorComponent);
     
     // Create message area container
     const messageAreaEl = this.contentContainerEl.createDiv({ cls: 'chatsidian-message-area' });
@@ -236,6 +211,32 @@ export class ChatView extends ItemView {
     // Initialize message list component
     this.messageList = new MessageList(messageListContainerEl);
     this.addChild(this.messageList);
+    
+    // Create model/agent selection container
+    const modelAgentContainerEl = messageAreaEl.createDiv({ cls: 'chatsidian-model-agent-container' });
+    
+    // Initialize model selector component
+    this.modelSelectorComponent = new ModelSelectorComponent(
+      modelAgentContainerEl,
+      this.eventBus,
+      this.providerService,
+      this.settingsService,
+      this.agentSystem,
+      this.app,
+      {
+        showProviderSelector: true,
+        showModelCapabilities: false,
+        filterByProvider: true,
+        filterByToolSupport: true,
+        showBuiltInAgents: true,
+        showCustomAgents: true,
+        allowCreatingAgents: false,
+        allowEditingAgents: false,
+        allowDeletingAgents: false,
+        showSettingsButton: true
+      }
+    );
+    this.addChild(this.modelSelectorComponent);
     
     // Create input area container
     const inputAreaContainerEl = messageAreaEl.createDiv({ cls: 'chatsidian-input-area-container' });
@@ -264,6 +265,12 @@ export class ChatView extends ItemView {
     const titleEl = this.contentContainerEl.querySelector('.chatsidian-header-title');
     if (titleEl) {
       titleEl.setText(conversation.title);
+    }
+    
+    // Close the sidebar after selecting a conversation (on mobile)
+    if (window.innerWidth <= 768) {
+      this.isSidebarOpen = true; // Set to true so toggle will make it false
+      this.toggleSidebar();
     }
   }
   
@@ -452,6 +459,16 @@ export class ChatView extends ItemView {
     } else {
       this.containerEl.removeClass('chatsidian-sidebar-open');
       this.containerEl.addClass('chatsidian-sidebar-closed');
+    }
+    
+    // Toggle the sidebar button active state
+    const hamburgerEl = this.containerEl.querySelector('.chatsidian-hamburger-toggle');
+    if (hamburgerEl) {
+      if (this.isSidebarOpen) {
+        hamburgerEl.addClass('active');
+      } else {
+        hamburgerEl.removeClass('active');
+      }
     }
   }
   
