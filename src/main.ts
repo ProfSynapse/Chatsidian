@@ -119,8 +119,8 @@ export default class ChatsidianPlugin extends Plugin {
     // Register views (placeholder for now)
     this.registerViews();
     
-    // Register settings tab
-    this.addSettingTab(new ChatsidianSettingTab(this.app, this));
+    // Settings tab is now registered in the SettingsService initialization (line 61)
+    // so removing the duplicate registration here that causes the error
     
     // Register event listeners
     this.registerEventListeners();
@@ -276,9 +276,9 @@ export default class ChatsidianPlugin extends Plugin {
       }
     });
     
-    // Add ribbon icon
-    this.addRibbonIcon('message-circle', PLUGIN_NAME, () => {
-      this.debug('Ribbon icon clicked');
+    // Add ribbon icon for opening chat view in sidebar
+    this.addRibbonIcon('message-square', PLUGIN_NAME, () => {
+      this.debug('Chat ribbon icon clicked');
       this.activateChatView();
     });
     
@@ -363,7 +363,7 @@ export default class ChatsidianPlugin extends Plugin {
   
   /**
    * Activate the chat view.
-   * Opens the chat view in a new leaf or focuses an existing one.
+   * Opens the chat view in the left sidebar or focuses an existing one.
    */
   public async activateChatView(): Promise<void> {
     const { workspace } = this.app;
@@ -373,8 +373,8 @@ export default class ChatsidianPlugin extends Plugin {
       let leaf = workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
       
       if (!leaf) {
-        // Create new leaf in right split
-        const newLeaf = workspace.getRightLeaf(false);
+        // Create new leaf in left sidebar
+        const newLeaf = workspace.getLeftLeaf(false);
         
         if (!newLeaf) {
           throw new Error('Could not create leaf for chat view');
@@ -392,7 +392,7 @@ export default class ChatsidianPlugin extends Plugin {
       // Reveal leaf - at this point leaf should not be null
       workspace.revealLeaf(leaf);
       
-      this.debug('Chat view activated');
+      this.debug('Chat view activated in left sidebar');
     } catch (error) {
       this.debug('Failed to activate chat view:', error);
       new Notice('Failed to open chat view');

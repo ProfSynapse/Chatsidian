@@ -129,6 +129,9 @@ export interface ModelInfo {
 
   /** Maximum number of tokens the model can generate in a single response */
   maxOutputTokens?: number;
+  
+  /** Whether the model has extended thinking capabilities (e.g., Claude with thinking) */
+  extendedThinking?: boolean;
 }
 
 /**
