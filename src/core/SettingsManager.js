@@ -132,15 +132,26 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     constructor(app, plugin) {
         super(app, plugin);
         this.plugin = plugin;
-        this.settings = plugin.settings;
+        // Use settingsService to get the settings manager
+        this.settings = plugin.settingsService?.getSettingsManager();
     }
     /**
      * Display the settings UI.
      */
     display() {
         const { containerEl } = this;
-        const settings = this.settings.getSettings();
         containerEl.empty();
+        
+        // Add a guard to check if settings manager is available
+        if (!this.settings) {
+            containerEl.createEl('div', { 
+                text: 'Settings manager not initialized properly. Please reload the plugin.',
+                cls: 'chatsidian-settings-error'
+            });
+            return;
+        }
+        
+        const settings = this.settings.getSettings();
         this.createApiSettings(containerEl, settings);
         this.createConversationSettings(containerEl, settings);
         this.createUiSettings(containerEl, settings);

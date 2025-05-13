@@ -181,6 +181,12 @@ export class StorageManager {
         throw new FolderOperationError(path, `${path} exists but is not a folder`);
       }
     } catch (error) {
+      // Check if the error is just that the folder already exists
+      if (error.message && error.message.includes("already exists")) {
+        console.log(`Conversations folder already exists: ${path}`);
+        return; // Return normally since the folder exists
+      }
+      
       console.error(`Failed to create conversations folder: ${error}`);
       throw new FolderOperationError(path, error.message);
     }

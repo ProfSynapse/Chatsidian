@@ -475,9 +475,18 @@ export default class ChatsidianPlugin extends Plugin {
       const folderExists = await this.vaultFacade.folderExists(conversationsFolder);
       
       if (!folderExists) {
-        // Create folder if it doesn't exist
-        await this.vaultFacade.createFolder(conversationsFolder);
-        this.debug(`Created conversations folder: ${conversationsFolder}`);
+        try {
+          // Create folder if it doesn't exist
+          await this.vaultFacade.createFolder(conversationsFolder);
+          this.debug(`Created conversations folder: ${conversationsFolder}`);
+        } catch (folderError) {
+          // If the error is just that the folder already exists, ignore it
+          if (folderError.message && folderError.message.includes("already exists")) {
+            this.debug(`Conversations folder already exists: ${conversationsFolder}`);
+          } else {
+            throw folderError;
+          }
+        }
       }
       
       // Create backups folder if it doesn't exist
@@ -485,8 +494,17 @@ export default class ChatsidianPlugin extends Plugin {
       const backupsFolderExists = await this.vaultFacade.folderExists(backupsFolder);
       
       if (!backupsFolderExists) {
-        await this.vaultFacade.createFolder(backupsFolder);
-        this.debug(`Created backups folder: ${backupsFolder}`);
+        try {
+          await this.vaultFacade.createFolder(backupsFolder);
+          this.debug(`Created backups folder: ${backupsFolder}`);
+        } catch (folderError) {
+          // If the error is just that the folder already exists, ignore it
+          if (folderError.message && folderError.message.includes("already exists")) {
+            this.debug(`Backups folder already exists: ${backupsFolder}`);
+          } else {
+            throw folderError;
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to create plugin folders:', error);

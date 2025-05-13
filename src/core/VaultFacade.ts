@@ -448,14 +448,24 @@ export class VaultFacade extends Component implements IVaultFacade {
         return; // Folder already exists, nothing to do
       }
       
-      // Create folder using Obsidian's Vault API
-      await this.vault.createFolder(normalizedPath);
-      
-      // User feedback
-      new Notice(`Folder created: ${normalizedPath.split('/').pop()}`);
-      
-      // Trigger event
-      this.events.trigger(VaultFacadeEventType.FOLDER_CREATED, { path: normalizedPath });
+      try {
+        // Create folder using Obsidian's Vault API
+        await this.vault.createFolder(normalizedPath);
+        
+        // User feedback only when successfully creating a new folder
+        new Notice(`Folder created: ${normalizedPath.split('/').pop()}`);
+        
+        // Trigger event
+        this.events.trigger(VaultFacadeEventType.FOLDER_CREATED, { path: normalizedPath });
+      } catch (createError) {
+        // Check if error is because folder already exists
+        if (createError.message && createError.message.includes("already exists")) {
+          // This is not an error condition, the folder exists which is what we want
+          console.log(`Folder already exists (race condition): ${normalizedPath}`);
+          return;
+        }
+        throw createError; // Re-throw other errors
+      }
     } catch (error) {
       console.error(`Error creating folder: ${path}`, error);
       new Notice(`Error creating folder: ${error.message}`);

@@ -168,7 +168,8 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     super(app, plugin);
     this.app = app;
     this.plugin = plugin;
-    this.settings = plugin.settings;
+    // Use settingsService to get the settings manager
+    this.settings = plugin.settingsService?.getSettingsManager();
   }
   
   /**
@@ -190,9 +191,18 @@ export class ChatsidianSettingTab extends PluginSettingTab {
    */
   display(): void {
     const { containerEl } = this;
-    const settings = this.settings.getSettings();
-    
     containerEl.empty();
+    
+    // Add a guard to check if settings manager is available
+    if (!this.settings) {
+      containerEl.createEl('div', { 
+        text: 'Settings manager not initialized properly. Please reload the plugin.',
+        cls: 'chatsidian-settings-error'
+      });
+      return;
+    }
+    
+    const settings = this.settings.getSettings();
     
     this.createApiSettings(containerEl, settings);
     this.createModelAndAgentSettings(containerEl, settings);
