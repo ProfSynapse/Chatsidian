@@ -974,57 +974,230 @@ class AgentCreationModal extends Modal {
       cls: 'chatsidian-tools-list'
     });
     
-    // Define common tools
-    const commonTools = [
-      { id: 'vault-search', name: 'Vault Search', description: 'Search for notes in your vault' },
-      { id: 'note-create', name: 'Create Notes', description: 'Create new notes in your vault' },
-      { id: 'note-edit', name: 'Edit Notes', description: 'Modify existing notes in your vault' },
-      { id: 'internet-search', name: 'Internet Search', description: 'Search the web for information' },
-      { id: 'folder-manage', name: 'Folder Management', description: 'Create and organize folders' },
-      { id: 'tag-manage', name: 'Tag Management', description: 'Add and organize tags' },
-      { id: 'file-explorer', name: 'File Explorer', description: 'Browse files and folders' },
-      { id: 'metadata-editor', name: 'Metadata Editor', description: 'Edit note metadata and frontmatter' }
-    ];
-    
     // Get current tools
     const currentTools = this.editingAgent ? this.editingAgent.tools : [];
     
     // Tool toggle components
     const toolToggles: Record<string, any> = {};
     
-    // Create tool toggles
-    for (const tool of commonTools) {
-      const toolItemEl = toolsListEl.createDiv({
-        cls: 'chatsidian-tool-item'
+    // Get BCP tools from the agent system - including unloaded BCPs
+    const bcpTools = this.agentSystem.getAllBCPTools(true);
+    
+    // Check if there are any BCP tools
+    if (Object.keys(bcpTools).length === 0) {
+      // No BCPs loaded - show a message
+      toolsListEl.createDiv({
+        cls: 'chatsidian-tools-empty',
+        text: 'No tool packs are currently loaded.'
       });
-      
-      const toolInfoEl = toolItemEl.createDiv({
-        cls: 'chatsidian-tool-info'
-      });
-      
-      toolInfoEl.createDiv({
-        cls: 'chatsidian-tool-name',
-        text: tool.name
-      });
-      
-      toolInfoEl.createDiv({
-        cls: 'chatsidian-tool-description',
-        text: tool.description
-      });
-      
-      const toolToggleEl = toolItemEl.createDiv({
-        cls: 'chatsidian-tool-toggle'
-      });
-      
-      // Create toggle component
-      const toggle = new ToggleComponent(toolToggleEl);
-      // Set initial value based on current tools
-      if (currentTools && Array.isArray(currentTools)) {
-        toggle.setValue(currentTools.includes(tool.id));
+    } else {
+      // Create a section for each domain
+      for (const [domain, tools] of Object.entries(bcpTools)) {
+        // Skip empty domains
+        if (tools.length === 0) continue;
+        
+        // Check if domain is loaded
+        const isDomainLoaded = tools.some(tool => tool.loaded);
+        
+        // Create domain section
+        const domainEl = toolsListEl.createDiv({
+          cls: `chatsidian-tools-domain${!isDomainLoaded ? ' chatsidian-domain-disabled' : ''}`
+        });
+        
+        // Create domain header
+        const domainHeaderEl = domainEl.createDiv({
+          cls: 'chatsidian-tools-domain-header'
+        });
+        
+        // Create domain name container
+        const domainNameEl = domainHeaderEl.createDiv({
+          cls: 'chatsidian-tools-domain-name'
+        });
+        
+        // Add domain name
+        domainNameEl.createSpan({
+          text: domain
+        });
+        
+        // Add status indicator if not loaded
+        if (!isDomainLoaded) {
+          domainNameEl.createSpan({
+            cls: 'chatsidian-domain-status',
+            text: ' (Not Loaded)'
+          });
+        }
+        
+        // Add toggle all/none buttons
+        const domainActionsEl = domainHeaderEl.createDiv({
+          cls: 'chatsidian-tools-domain-actions'
+        });
+        
+        // Create toggle all button
+        const toggleAllButtonEl = domainActionsEl.createDiv({
+          cls: `chatsidian-tools-domain-toggle-all${!isDomainLoaded ? ' chatsidian-button-disabled' : ''}`,
+          text: 'All'
+        });
+        
+        if (isDomainLoaded) {
+          toggleAllButtonEl.addEventListener('click', () => {
+            // Find all toggles for this domain and set them to true
+            for (const tool of tools) {
+              // Only toggle loaded tools
+              if (tool.loaded) {
+                const toggle = toolToggles[tool.id];
+                if (toggle) {
+                  toggle.setValue(true);
+                }
+              }
+            }
+          });
+        }
+        
+        // Create toggle none button
+        const toggleNoneButtonEl = domainActionsEl.createDiv({
+          cls: `chatsidian-tools-domain-toggle-none${!isDomainLoaded ? ' chatsidian-button-disabled' : ''}`,
+          text: 'None'
+        });
+        
+        if (isDomainLoaded) {
+          toggleNoneButtonEl.addEventListener('click', () => {
+            // Find all toggles for this domain and set them to false
+            for (const tool of tools) {
+              // Only toggle loaded tools
+              if (tool.loaded) {
+                const toggle = toolToggles[tool.id];
+                if (toggle) {
+                  toggle.setValue(false);
+                }
+              }
+            }
+          });
+        }
+        
+        // Create tool list for this domain
+        const domainToolsEl = domainEl.createDiv({
+          cls: 'chatsidian-tools-domain-list'
+        });
+        
+        // Add tools from this domain
+        for (const tool of tools) {
+          // Add disabled class if tool is not loaded
+          const toolItemEl = domainToolsEl.createDiv({
+            cls: `chatsidian-tool-item${!tool.loaded ? ' chatsidian-tool-disabled' : ''}`
+          });
+          
+          const toolInfoEl = toolItemEl.createDiv({
+            cls: 'chatsidian-tool-info'
+          });
+          
+          // Add icon if available
+          if (tool.icon) {
+            const iconEl = toolInfoEl.createDiv({
+              cls: 'chatsidian-tool-icon'
+            });
+            setIcon(iconEl, tool.icon);
+          }
+          
+          toolInfoEl.createDiv({
+            cls: 'chatsidian-tool-name',
+            text: tool.name
+          });
+          
+          toolInfoEl.createDiv({
+            cls: 'chatsidian-tool-description',
+            text: tool.description
+          });
+          
+          const toolToggleEl = toolItemEl.createDiv({
+            cls: 'chatsidian-tool-toggle'
+          });
+          
+          // Create toggle component
+          const toggle = new ToggleComponent(toolToggleEl);
+          
+          // Set initial value based on current tools
+          if (currentTools && Array.isArray(currentTools)) {
+            toggle.setValue(currentTools.includes(tool.id));
+          }
+          
+          // Disable toggle if tool is not loaded
+          if (!tool.loaded) {
+            // Add loading indicator or message
+            const unavailableEl = toolItemEl.createDiv({
+              cls: 'chatsidian-tool-unavailable',
+              text: 'Pack not loaded'
+            });
+            
+            // Disable the toggle
+            toggle.setDisabled(true);
+            
+            // Add tooltip
+            toolItemEl.setAttribute('aria-label', `${tool.name} is unavailable because the ${domain} pack is not loaded`);
+            toolItemEl.addClass('chatsidian-tooltip');
+          }
+          
+          // Store toggle reference
+          toolToggles[tool.id] = toggle;
+        }
       }
+    }
+    
+    // Also add fallback for backward compatibility with hardcoded tools
+    const hardcodedTools = [
+      { id: 'vault-search', name: 'Vault Search', description: 'Search for notes in your vault' },
+      { id: 'note-create', name: 'Create Notes', description: 'Create new notes in your vault' },
+      { id: 'note-edit', name: 'Edit Notes', description: 'Modify existing notes in your vault' }
+    ];
+    
+    // Only show the legacy section if we have BCP tools to avoid confusion
+    if (Object.keys(bcpTools).length > 0) {
+      // Create a separator if we have BCP tools
+      toolsListEl.createDiv({
+        cls: 'chatsidian-tools-separator',
+        text: 'Legacy Tools'
+      });
       
-      // Store toggle reference
-      toolToggles[tool.id] = toggle;
+      // Add legacy tools
+      const legacyToolsEl = toolsListEl.createDiv({
+        cls: 'chatsidian-tools-legacy'
+      });
+      
+      // Create tool toggles for legacy tools
+      for (const tool of hardcodedTools) {
+        if (toolToggles[tool.id]) continue; // Skip if already added
+        
+        const toolItemEl = legacyToolsEl.createDiv({
+          cls: 'chatsidian-tool-item chatsidian-tool-legacy'
+        });
+        
+        const toolInfoEl = toolItemEl.createDiv({
+          cls: 'chatsidian-tool-info'
+        });
+        
+        toolInfoEl.createDiv({
+          cls: 'chatsidian-tool-name',
+          text: tool.name
+        });
+        
+        toolInfoEl.createDiv({
+          cls: 'chatsidian-tool-description',
+          text: tool.description
+        });
+        
+        const toolToggleEl = toolItemEl.createDiv({
+          cls: 'chatsidian-tool-toggle'
+        });
+        
+        // Create toggle component
+        const toggle = new ToggleComponent(toolToggleEl);
+        // Set initial value based on current tools
+        if (currentTools && Array.isArray(currentTools)) {
+          toggle.setValue(currentTools.includes(tool.id));
+        }
+        
+        // Store toggle reference
+        toolToggles[tool.id] = toggle;
+      }
     }
     
     // Create capabilities section - future improvement
@@ -1157,6 +1330,9 @@ class AgentCreationModal extends Modal {
         tools.push(toolId);
       }
     }
+    
+    // Log selected tools for debugging
+    console.log('Selected tools:', tools);
     
     // Create agent definition
     const agent: AgentDefinition = {

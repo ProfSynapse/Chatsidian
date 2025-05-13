@@ -437,6 +437,54 @@ Present information clearly, cite specific notes, and help the user expand their
   }
   
   /**
+   * Get all available tools from BCPs, organized by domain
+   * @param includeUnloaded - Whether to include tools from unloaded BCPs
+   * @returns Object mapping domain to tool metadata
+   */
+  public getAllBCPTools(includeUnloaded: boolean = false): Record<string, Array<{id: string, name: string, description: string, icon?: string, loaded: boolean}>> {
+    const bcpTools: Record<string, Array<{id: string, name: string, description: string, icon?: string, loaded: boolean}>> = {};
+    
+    // Get all BCPs (either just loaded ones or all known ones)
+    const domains = includeUnloaded 
+      ? Array.from(this.bcpRegistry['packs'].keys()) // Access the internal packs map
+      : this.bcpRegistry.getLoadedPacks();
+    
+    // Iterate through each BCP
+    for (const domain of domains) {
+      const pack = this.bcpRegistry.getPack(domain);
+      const isLoaded = this.bcpRegistry.isPackLoaded(domain);
+      
+      if (!pack) continue;
+      
+      // Create entry for this domain
+      bcpTools[domain] = [];
+      
+      // Add tools from this BCP
+      for (const tool of pack.tools) {
+        bcpTools[domain].push({
+          id: `${domain}.${tool.name}`,
+          name: tool.name,
+          description: tool.description,
+          icon: tool.icon,
+          loaded: isLoaded
+        });
+      }
+    }
+    
+    return bcpTools;
+  }
+  
+  /**
+   * Check if a tool is available (its BCP is loaded)
+   * @param toolId - Tool ID in the format "domain.name"
+   * @returns Whether the tool is available
+   */
+  public isToolAvailable(toolId: string): boolean {
+    const [domain] = toolId.split('.');
+    return domain ? this.bcpRegistry.isPackLoaded(domain) : false;
+  }
+  
+  /**
    * Save a custom agent definition
    * @param definition - Agent definition
    * @returns Promise resolving when saved

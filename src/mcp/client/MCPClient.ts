@@ -33,7 +33,6 @@ export class MCPClient extends Component implements IMCPClient {
   private eventBus: EventBus;
   private events: Events;
   private provider?: ProviderAdapter;
-  private systemPromptTemplate: string = '';
   
   /**
    * Create a new MCP client
@@ -112,15 +111,11 @@ export class MCPClient extends Component implements IMCPClient {
   }
   
   /**
-   * Load system prompt template from settings
+   * Load system prompt template
    */
   private loadSystemPromptTemplate(): void {
-    const settings = this.settings.getSettings();
-    this.systemPromptTemplate = settings.defaultSystemPrompt;
-    
-    if (!this.systemPromptTemplate) {
-      this.systemPromptTemplate = 'You are a helpful assistant in Obsidian. You can help the user with their notes and tasks.';
-    }
+    // This method is kept for backwards compatibility but no longer loads from settings
+    // System prompts are now managed at the agent level only
   }
   
   /**
@@ -211,8 +206,8 @@ export class MCPClient extends Component implements IMCPClient {
       const settings = this.settings.getSettings();
       const mergedOptions: ModelRequestOptions = {
         model: options.model || settings.model,
-        temperature: options.temperature ?? settings.defaultTemperature,
-        max_tokens: options.max_tokens ?? settings.defaultMaxTokens,
+        temperature: options.temperature ?? 0.7, // Default temperature if not specified
+        max_tokens: options.max_tokens ?? 4000,  // Default max tokens if not specified
         stream: options.stream || false,
         tools,
         ...options.additionalParams
@@ -303,8 +298,8 @@ export class MCPClient extends Component implements IMCPClient {
       const settings = this.settings.getSettings();
       const mergedOptions: ModelRequestOptions = {
         model: options.model || settings.model,
-        temperature: options.temperature ?? settings.defaultTemperature,
-        max_tokens: options.max_tokens ?? settings.defaultMaxTokens,
+        temperature: options.temperature ?? 0.7, // Default temperature if not specified
+        max_tokens: options.max_tokens ?? 4000,  // Default max tokens if not specified
         stream: true,
         tools,
         ...options.additionalParams
@@ -497,17 +492,17 @@ export class MCPClient extends Component implements IMCPClient {
     conversation: Conversation,
     customInstructions?: string
   ): string {
-    // Start with template
-    let prompt = this.systemPromptTemplate;
+    // Start with agent instructions or an empty string
+    let prompt = '';
     
     // Add custom instructions if provided
     if (customInstructions) {
-      prompt += '\n\n' + customInstructions;
+      prompt += customInstructions;
     }
     
     // Add conversation-specific instructions
     if (conversation.metadata?.instructions) {
-      prompt += '\n\n' + conversation.metadata.instructions;
+      prompt += (prompt ? '\n\n' : '') + conversation.metadata.instructions;
     }
     
     // Add available tools information
@@ -540,15 +535,18 @@ export class MCPClient extends Component implements IMCPClient {
       message => message.role === MessageRole.System
     );
     
-    // Add system message if not exists
+    // Add system message if not exists and if we have instructions
     if (!hasSystemMessage) {
       const systemPrompt = this.generateSystemPrompt(conversation, customInstructions);
       
-      conversation.messages.unshift({
-        role: MessageRole.System,
-        content: systemPrompt,
-        timestamp: Date.now()
-      });
+      // Only add system message if we have some instructions
+      if (systemPrompt.trim()) {
+        conversation.messages.unshift({
+          role: MessageRole.System,
+          content: systemPrompt,
+          timestamp: Date.now()
+        });
+      }
     }
   }
   

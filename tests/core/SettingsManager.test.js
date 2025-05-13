@@ -66,9 +66,6 @@ describe('SettingsManager', () => {
     test('should get conversations path', () => {
         expect(settingsManager.getConversationsPath()).toBe(DEFAULT_SETTINGS.conversationsFolder);
     });
-    test('should get default system prompt', () => {
-        expect(settingsManager.getDefaultSystemPrompt()).toBe(DEFAULT_SETTINGS.defaultSystemPrompt);
-    });
     test('should check if debug mode is enabled', () => {
         expect(settingsManager.isDebugModeEnabled()).toBe(DEFAULT_SETTINGS.debugMode);
     });

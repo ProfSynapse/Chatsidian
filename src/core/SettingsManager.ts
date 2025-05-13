@@ -125,13 +125,7 @@ export class SettingsManager {
     return this.settings.conversationsFolder;
   }
   
-  /**
-   * Get the default system prompt.
-   * @returns The default system prompt
-   */
-  public getDefaultSystemPrompt(): string {
-    return this.settings.defaultSystemPrompt;
-  }
+  // No getDefaultSystemPrompt method needed as system prompts are now managed by specific components
   
   /**
    * Check if debug mode is enabled.
@@ -208,8 +202,7 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     this.createApiSettings(containerEl, settings);
     this.createAgentSettings(containerEl, settings);
     this.createConversationSettings(containerEl, settings);
-    this.createUiSettings(containerEl, settings);
-    this.createAdvancedSettings(containerEl, settings);
+    this.createDebugSettings(containerEl, settings);
   }
   
   /**
@@ -359,25 +352,6 @@ export class ChatsidianSettingTab extends PluginSettingTab {
           .onChange(async (value: any) => {
           await this.settings.updateSettings({ maxMessages: value });
         }));
-    
-    new Setting(containerEl)
-      .setName('Default System Prompt')
-      .setDesc('Default system prompt to use for new conversations')
-      .addTextArea((textarea: any) => textarea
-        .setPlaceholder('Enter default system prompt')
-        .setValue(settings.defaultSystemPrompt)
-          .onChange(async (value: any) => {
-          await this.settings.updateSettings({ defaultSystemPrompt: value });
-        }))
-      .addExtraButton((button: any) => button
-        .setIcon('reset')
-        .setTooltip('Reset to default')
-        .onClick(async () => {
-          await this.settings.updateSettings({ 
-            defaultSystemPrompt: DEFAULT_SETTINGS.defaultSystemPrompt 
-          });
-          this.display(); // Refresh UI
-        }));
   }
   
   /**
@@ -454,98 +428,20 @@ export class ChatsidianSettingTab extends PluginSettingTab {
   }
   
   /**
-   * Create UI settings section.
+   * Create debug settings section.
    * @param containerEl Container element
    * @param settings Current settings
    */
-  private createUiSettings(containerEl: HTMLElement, settings: ChatsidianSettings): void {
-    containerEl.createEl('h2', { text: 'UI Settings' });
-    
-    new Setting(containerEl)
-      .setName('Theme')
-      .setDesc('Choose the theme for the chat interface')
-      .addDropdown((dropdown: any) => dropdown
-        .addOption('light', 'Light')
-        .addOption('dark', 'Dark')
-        .addOption('system', 'Use System Theme')
-        .setValue(settings.theme)
-          .onChange(async (value: any) => {
-          await this.settings.updateSettings({ 
-            theme: value as ChatsidianSettings['theme'] 
-          });
-        }));
-    
-    new Setting(containerEl)
-      .setName('Font Size')
-      .setDesc('Font size for the chat interface')
-      .addSlider((slider: any) => slider
-        .setLimits(10, 24, 1)
-        .setValue(settings.fontSize)
-        .setDynamicTooltip()
-          .onChange(async (value: any) => {
-          await this.settings.updateSettings({ fontSize: value });
-        }));
-    
-    new Setting(containerEl)
-      .setName('Show Timestamps')
-      .setDesc('Show message timestamps in the chat interface')
-      .addToggle((toggle: any) => toggle
-        .setValue(settings.showTimestamps)
-          .onChange(async (value: any) => {
-          await this.settings.updateSettings({ showTimestamps: value });
-        }));
-  }
-  
-  /**
-   * Create advanced settings section.
-   * @param containerEl Container element
-   * @param settings Current settings
-   */
-  private createAdvancedSettings(containerEl: HTMLElement, settings: ChatsidianSettings): void {
-    containerEl.createEl('h2', { text: 'Advanced Settings' });
+  private createDebugSettings(containerEl: HTMLElement, settings: ChatsidianSettings): void {
+    containerEl.createEl('h2', { text: 'Debug Settings' });
     
     new Setting(containerEl)
       .setName('Debug Mode')
-      .setDesc('Enable debug logging')
+      .setDesc('Enable verbose logging')
       .addToggle((toggle: any) => toggle
         .setValue(settings.debugMode)
           .onChange(async (value: any) => {
           await this.settings.updateSettings({ debugMode: value });
-        }));
-    
-    new Setting(containerEl)
-      .setName('Auto-load BCPs')
-      .setDesc('Bounded Context Packs to load automatically')
-      .addTextArea((textarea: any) => textarea
-        .setPlaceholder('System,Vault,Editor')
-        .setValue(settings.autoLoadBCPs.join(','))
-          .onChange(async (value: any) => {
-      const bcps = value.split(',').map((s: any) => s.trim()).filter((s: any) => s);
-          await this.settings.updateSettings({ autoLoadBCPs: bcps });
-        }));
-    
-    new Setting(containerEl)
-      .setName('Default Temperature')
-      .setDesc('Default temperature for AI requests (0.0 - 1.0)')
-      .addSlider((slider: any) => slider
-        .setLimits(0, 1, 0.1)
-        .setValue(settings.defaultTemperature)
-        .setDynamicTooltip()
-          .onChange(async (value: any) => {
-          await this.settings.updateSettings({ defaultTemperature: value });
-        }));
-    
-    new Setting(containerEl)
-      .setName('Default Max Tokens')
-      .setDesc('Default maximum tokens for AI responses')
-      .addText((text: any) => text
-        .setPlaceholder('4000')
-        .setValue(settings.defaultMaxTokens.toString())
-          .onChange(async (value: any) => {
-          const tokens = parseInt(value);
-          if (!isNaN(tokens)) {
-            await this.settings.updateSettings({ defaultMaxTokens: tokens });
-          }
         }));
     
     new Setting(containerEl)
@@ -643,26 +539,20 @@ export class SettingsMigration {
     
     // Map known fields from old to new format
     if (oldSettings) {
-      // Direct mappings
+      // Direct mappings - only keep fields that are still in the current schema
       if (oldSettings.provider) newSettings.provider = oldSettings.provider;
       if (oldSettings.apiKey) newSettings.apiKey = oldSettings.apiKey;
       if (oldSettings.model) newSettings.model = oldSettings.model;
       if (oldSettings.conversationsFolder) newSettings.conversationsFolder = oldSettings.conversationsFolder;
       if (oldSettings.maxMessages) newSettings.maxMessages = oldSettings.maxMessages;
-      if (oldSettings.defaultSystemPrompt) newSettings.defaultSystemPrompt = oldSettings.defaultSystemPrompt;
-      if (oldSettings.theme) newSettings.theme = oldSettings.theme;
-      if (oldSettings.fontSize) newSettings.fontSize = oldSettings.fontSize;
-      if (oldSettings.showTimestamps) newSettings.showTimestamps = oldSettings.showTimestamps;
       if (oldSettings.debugMode) newSettings.debugMode = oldSettings.debugMode;
-      if (oldSettings.defaultTemperature) newSettings.defaultTemperature = oldSettings.defaultTemperature;
-      if (oldSettings.defaultMaxTokens) newSettings.defaultMaxTokens = oldSettings.defaultMaxTokens;
       
-      // Field mappings with changes
-      if (Array.isArray(oldSettings.bcps)) {
-        newSettings.autoLoadBCPs = oldSettings.bcps;
-      } else if (typeof oldSettings.bcps === 'string') {
-        newSettings.autoLoadBCPs = oldSettings.bcps.split(',').map((s: string) => s.trim()).filter((s: string) => s);
-      }
+      // Save any agent settings
+      if (oldSettings.defaultAgentId) newSettings.defaultAgentId = oldSettings.defaultAgentId;
+      if (oldSettings.customAgents) newSettings.customAgents = oldSettings.customAgents;
+      
+      // Note: UI settings (theme, fontSize, showTimestamps) are now removed
+      // Note: Advanced settings (autoLoadBCPs, defaultTemperature, defaultMaxTokens) are now removed
       
       // Handle any other specific migrations here
     }

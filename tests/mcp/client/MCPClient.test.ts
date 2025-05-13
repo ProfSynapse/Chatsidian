@@ -105,7 +105,6 @@ describe('MCPClient', () => {
         apiKey: 'test-key',
         apiEndpoint: '',
         model: 'test-model',
-        defaultSystemPrompt: 'You are a helpful assistant in Obsidian. You can help the user with their notes and tasks.',
         defaultTemperature: 0.7,
         defaultMaxTokens: 4000
       }),
@@ -483,7 +482,7 @@ describe('MCPClient', () => {
     expect(conversation.messages[0].content).toContain('Invalid parameters:');
   });
 
-  test('should handle systemPromptTemplate update', async () => {
+  test('system prompt template exists', () => {
     // Initial state
     const testConversation: Conversation = {
       id: 'test-conversation',
@@ -491,34 +490,6 @@ describe('MCPClient', () => {
       messages: []
     };
     expect(mcpClient.generateSystemPrompt(testConversation)).toContain('You are a helpful assistant');
-
-    // Update settings with new prompt
-    settingsManager.getSettings = jest.fn().mockReturnValue({
-      provider: 'mock',
-      apiKey: 'test-key',
-      apiEndpoint: '',
-      model: 'test-model',
-      defaultSystemPrompt: 'New system prompt',
-      defaultTemperature: 0.7,
-      defaultMaxTokens: 4000
-    });
-
-    // Manually call the private method to register event listeners
-    (mcpClient as any).registerEventListeners();
-
-    // Trigger settings update
-    eventBus.emit('settings:updated', {
-      changedKeys: ['systemPromptTemplate']
-    });
-
-    // Allow async operations to complete
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Access private method through type casting
-    (mcpClient as any).loadSystemPromptTemplate();
-
-    // Check new prompt
-    expect(mcpClient.generateSystemPrompt(testConversation)).toContain('New system prompt');
   });
 
   test('should handle tool errors gracefully', async () => {

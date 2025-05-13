@@ -206,8 +206,8 @@ export class Agent {
       message => message.role === MessageRole.System
     );
     
-    // Add system message if not exists
-    if (!hasSystemMessage) {
+    // Add system message if not exists and if agent has a system prompt
+    if (!hasSystemMessage && this.definition.systemPrompt) {
       conversation.messages.unshift({
         role: MessageRole.System,
         content: this.definition.systemPrompt,

@@ -108,7 +108,6 @@ describe('MCP Integration Tests', () => {
       getApiKey: jest.fn(),
       getModel: jest.fn(),
       getConversationsPath: jest.fn(),
-      getDefaultSystemPrompt: jest.fn(),
       isDebugModeEnabled: jest.fn(),
       resetToDefaults: jest.fn()
     } as unknown as SettingsManager;

@@ -15,7 +15,6 @@ export const DEFAULT_SETTINGS = {
     model: 'claude-3-opus-20240229', // Default to a known powerful model
     conversationsFolder: '.chatsidian/conversations', // Store in a hidden folder by default
     maxMessages: 100, // Reasonable default for memory management
-    defaultSystemPrompt: 'You are an AI assistant integrated into Obsidian. Use your tools to help the user manage their vault and notes.',
     theme: 'system', // Follow Obsidian's theme by default
     fontSize: 14, // Common default font size
     showTimestamps: true,
@@ -43,7 +42,6 @@ export class SettingsUtils {
             apiEndpoint: merged.apiEndpoint || '', // Ensure apiEndpoint is at least an empty string
             conversationsFolder: this.validateFolderPath(merged.conversationsFolder),
             maxMessages: Math.max(10, merged.maxMessages || DEFAULT_SETTINGS.maxMessages), // Ensure at least 10
-            defaultSystemPrompt: merged.defaultSystemPrompt !== undefined ? merged.defaultSystemPrompt : DEFAULT_SETTINGS.defaultSystemPrompt,
             theme: this.validateTheme(merged.theme),
             fontSize: Math.max(8, merged.fontSize || DEFAULT_SETTINGS.fontSize), // Ensure at least 8px
             showTimestamps: typeof merged.showTimestamps === 'boolean' ? merged.showTimestamps : DEFAULT_SETTINGS.showTimestamps,

@@ -8,7 +8,6 @@ describe('Settings Model & Utils', () => {
         expect(DEFAULT_SETTINGS).toHaveProperty('model');
         expect(DEFAULT_SETTINGS).toHaveProperty('conversationsFolder');
         expect(DEFAULT_SETTINGS).toHaveProperty('maxMessages');
-        expect(DEFAULT_SETTINGS).toHaveProperty('defaultSystemPrompt');
         expect(DEFAULT_SETTINGS).toHaveProperty('theme');
         expect(DEFAULT_SETTINGS).toHaveProperty('fontSize');
         expect(DEFAULT_SETTINGS).toHaveProperty('showTimestamps');
@@ -17,7 +16,7 @@ describe('Settings Model & Utils', () => {
         expect(DEFAULT_SETTINGS).toHaveProperty('defaultTemperature');
         expect(DEFAULT_SETTINGS).toHaveProperty('defaultMaxTokens');
         // Ensure no unexpected properties are present (optional check)
-        expect(Object.keys(DEFAULT_SETTINGS).length).toBe(14);
+        expect(Object.keys(DEFAULT_SETTINGS).length).toBe(13);
     });
     test('DEFAULT_SETTINGS should have sensible default values', () => {
         expect(DEFAULT_SETTINGS.apiKey).toBe('');
@@ -96,9 +95,8 @@ describe('Settings Model & Utils', () => {
             expect(SettingsUtils.validate({ autoLoadBCPs: 'not-an-array' }).autoLoadBCPs).toEqual(DEFAULT_SETTINGS.autoLoadBCPs);
         });
         test('should handle empty strings correctly', () => {
-            const settings = SettingsUtils.validate({ apiKey: '', defaultSystemPrompt: '' });
+            const settings = SettingsUtils.validate({ apiKey: '' });
             expect(settings.apiKey).toBe('');
-            expect(settings.defaultSystemPrompt).toBe(''); // Should allow empty system prompt
             expect(settings.apiEndpoint).toBe('');
         });
     });

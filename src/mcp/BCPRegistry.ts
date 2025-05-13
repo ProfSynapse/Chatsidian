@@ -67,8 +67,8 @@ export class BCPRegistry extends Component {
    * @param settings - New settings
    */
   private handleSettingsChanged(settings: any) {
-    // Update auto-loaded BCPs if the setting has changed
-    this.updateAutoLoadedBCPs();
+    // No longer need to check for auto-load BCP setting changes
+    // All BCPs are automatically loaded
   }
   
   /**
@@ -196,29 +196,18 @@ export class BCPRegistry extends Component {
   }
   
   /**
-   * Update auto-loaded BCPs based on current settings
+   * Update auto-loaded BCPs - automatically loads all available packs
    */
   public async updateAutoLoadedBCPs(): Promise<void> {
-    const settings = this.settings.getSettings();
-    const autoLoadBCPs = settings.autoLoadBCPs || [];
+    // Get all available domains
+    const availableDomains = Array.from(this.packs.keys());
     
-    // Unload BCPs that are no longer in auto-load list
-    for (const domain of this.loadedPacks) {
-      // Skip System BCP
-      if (domain === 'System') continue;
-      
-      if (!autoLoadBCPs.includes(domain)) {
-        try {
-          await this.unloadPack(domain);
-        } catch (error) {
-          console.error(`Error unloading pack ${domain}:`, error);
-        }
-      }
-    }
-    
-    // Load new auto-load BCPs
-    for (const domain of autoLoadBCPs) {
+    // Load all packs that aren't already loaded
+    for (const domain of availableDomains) {
       try {
+        // Skip System BCP as it's already loaded by default
+        if (domain === 'System') continue;
+        
         if (!this.loadedPacks.has(domain)) {
           await this.loadPack(domain);
         }
@@ -381,18 +370,21 @@ export class BCPRegistry extends Component {
   }
   
   /**
-   * Load auto-load packs from settings
+   * Load all available packs automatically
    * @returns Promise resolving when auto-load packs are loaded
    * @public - Explicitly marked as public for testing
    */
   public async loadAutoLoadPacks(): Promise<void> {
     try {
-      const settings = this.settings.getSettings();
-      const autoLoadBCPs = settings.autoLoadBCPs || [];
+      // Get all available packs
+      const availableDomains = Array.from(this.packs.keys());
       
-      // Load each auto-load pack
-      for (const domain of autoLoadBCPs) {
+      // Load each pack (except System which is already loaded)
+      for (const domain of availableDomains) {
         try {
+          // Skip System BCP as it's already loaded by default
+          if (domain === 'System') continue;
+          
           await this.loadPack(domain);
         } catch (error) {
           console.error(`Error auto-loading pack ${domain}:`, error);

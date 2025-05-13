@@ -13,29 +13,21 @@ describe('Settings Model & Utils', () => {
     // Check a few key properties to ensure the object structure is correct
     expect(DEFAULT_SETTINGS).toHaveProperty('provider');
     expect(DEFAULT_SETTINGS).toHaveProperty('apiKey');
+    expect(DEFAULT_SETTINGS).toHaveProperty('apiEndpoint');
     expect(DEFAULT_SETTINGS).toHaveProperty('model');
     expect(DEFAULT_SETTINGS).toHaveProperty('conversationsFolder');
     expect(DEFAULT_SETTINGS).toHaveProperty('maxMessages');
-    expect(DEFAULT_SETTINGS).toHaveProperty('defaultSystemPrompt');
-    expect(DEFAULT_SETTINGS).toHaveProperty('theme');
-    expect(DEFAULT_SETTINGS).toHaveProperty('fontSize');
-    expect(DEFAULT_SETTINGS).toHaveProperty('showTimestamps');
     expect(DEFAULT_SETTINGS).toHaveProperty('debugMode');
-    expect(DEFAULT_SETTINGS).toHaveProperty('autoLoadBCPs');
-    expect(DEFAULT_SETTINGS).toHaveProperty('defaultTemperature');
-    expect(DEFAULT_SETTINGS).toHaveProperty('defaultMaxTokens');
     expect(DEFAULT_SETTINGS).toHaveProperty('defaultAgentId');
     expect(DEFAULT_SETTINGS).toHaveProperty('customAgents');
     // Ensure no unexpected properties are present (optional check)
-    expect(Object.keys(DEFAULT_SETTINGS).length).toBe(16);
+    expect(Object.keys(DEFAULT_SETTINGS).length).toBe(9);
   });
 
   test('DEFAULT_SETTINGS should have sensible default values', () => {
     expect(DEFAULT_SETTINGS.apiKey).toBe('');
     expect(DEFAULT_SETTINGS.provider).toBe('anthropic');
-    expect(DEFAULT_SETTINGS.theme).toBe('system');
     expect(DEFAULT_SETTINGS.debugMode).toBe(false);
-    expect(DEFAULT_SETTINGS.defaultTemperature).toBe(0.7);
     expect(DEFAULT_SETTINGS.conversationsFolder).toBe('.chatsidian/conversations');
   });
 
@@ -51,11 +43,11 @@ describe('Settings Model & Utils', () => {
     test('should merge partial settings with defaults', () => {
       const partial: Partial<ChatsidianSettings> = {
         apiKey: 'test-key-123',
-        fontSize: 16,
+        maxMessages: 150,
       };
       const validated = SettingsUtils.validate(partial);
       expect(validated.apiKey).toBe('test-key-123');
-      expect(validated.fontSize).toBe(16);
+      expect(validated.maxMessages).toBe(150);
       expect(validated.provider).toBe(DEFAULT_SETTINGS.provider); // Check a default value
       expect(validated.model).toBe(DEFAULT_SETTINGS.model); // Check another default
     });
@@ -65,10 +57,7 @@ describe('Settings Model & Utils', () => {
       expect(SettingsUtils.validate({ provider: 'invalid-provider' as any }).provider).toBe(DEFAULT_SETTINGS.provider);
     });
 
-     test('should validate and correct theme', () => {
-      expect(SettingsUtils.validate({ theme: 'dark' }).theme).toBe('dark');
-      expect(SettingsUtils.validate({ theme: 'invalid-theme' as any }).theme).toBe(DEFAULT_SETTINGS.theme);
-    });
+    // Theme validation removed
 
     test('should validate and normalize conversationsFolder path', () => {
       expect(SettingsUtils.validate({ conversationsFolder: 'my/chats/' }).conversationsFolder).toBe('my/chats');
@@ -80,48 +69,30 @@ describe('Settings Model & Utils', () => {
        expect(SettingsUtils.validate({ conversationsFolder: 'back\\slashes\\' }).conversationsFolder).toBe('back\\slashes');
     });
 
-    test('should validate and clamp temperature', () => {
-      expect(SettingsUtils.validate({ defaultTemperature: -0.5 }).defaultTemperature).toBe(0);
-      expect(SettingsUtils.validate({ defaultTemperature: 1.5 }).defaultTemperature).toBe(1);
-      expect(SettingsUtils.validate({ defaultTemperature: 0.5 }).defaultTemperature).toBe(0.5);
-      expect(SettingsUtils.validate({ defaultTemperature: undefined }).defaultTemperature).toBe(DEFAULT_SETTINGS.defaultTemperature);
-    });
-
-    test('should validate and clamp maxTokens', () => {
-      expect(SettingsUtils.validate({ defaultMaxTokens: 0 }).defaultMaxTokens).toBe(1);
-      expect(SettingsUtils.validate({ defaultMaxTokens: -100 }).defaultMaxTokens).toBe(1);
-      expect(SettingsUtils.validate({ defaultMaxTokens: 50000 }).defaultMaxTokens).toBe(32000); // Clamp to max practical limit
-      expect(SettingsUtils.validate({ defaultMaxTokens: 2048 }).defaultMaxTokens).toBe(2048);
-      expect(SettingsUtils.validate({ defaultMaxTokens: undefined }).defaultMaxTokens).toBe(DEFAULT_SETTINGS.defaultMaxTokens);
-       expect(SettingsUtils.validate({ defaultMaxTokens: 4000.5 }).defaultMaxTokens).toBe(4000); // Should floor
-    });
+    // Temperature validation removed
+    
+    // MaxTokens validation removed
 
      test('should validate numeric properties', () => {
-      expect(SettingsUtils.validate({ fontSize: 6 }).fontSize).toBe(8); // Clamp min
-      expect(SettingsUtils.validate({ fontSize: 15 }).fontSize).toBe(15);
       expect(SettingsUtils.validate({ maxMessages: 5 }).maxMessages).toBe(10); // Clamp min
       expect(SettingsUtils.validate({ maxMessages: 200 }).maxMessages).toBe(200);
     });
 
     test('should validate boolean properties', () => {
-      expect(SettingsUtils.validate({ showTimestamps: false }).showTimestamps).toBe(false);
-      expect(SettingsUtils.validate({ showTimestamps: true }).showTimestamps).toBe(true);
-      expect(SettingsUtils.validate({ showTimestamps: undefined }).showTimestamps).toBe(DEFAULT_SETTINGS.showTimestamps);
       expect(SettingsUtils.validate({ debugMode: true }).debugMode).toBe(true);
       expect(SettingsUtils.validate({ debugMode: false }).debugMode).toBe(false);
       expect(SettingsUtils.validate({ debugMode: undefined }).debugMode).toBe(DEFAULT_SETTINGS.debugMode);
     });
 
      test('should validate array properties', () => {
-      expect(SettingsUtils.validate({ autoLoadBCPs: ['CustomBCP'] }).autoLoadBCPs).toEqual(['CustomBCP']);
-      expect(SettingsUtils.validate({ autoLoadBCPs: undefined }).autoLoadBCPs).toEqual(DEFAULT_SETTINGS.autoLoadBCPs);
-      expect(SettingsUtils.validate({ autoLoadBCPs: 'not-an-array' as any }).autoLoadBCPs).toEqual(DEFAULT_SETTINGS.autoLoadBCPs);
+      expect(SettingsUtils.validate({ customAgents: [] }).customAgents).toEqual([]);
+      expect(SettingsUtils.validate({ customAgents: undefined }).customAgents).toEqual(DEFAULT_SETTINGS.customAgents);
+      expect(SettingsUtils.validate({ customAgents: 'not-an-array' as any }).customAgents).toEqual(DEFAULT_SETTINGS.customAgents);
     });
 
      test('should handle empty strings correctly', () => {
-        const settings = SettingsUtils.validate({ apiKey: '', defaultSystemPrompt: '' });
+        const settings = SettingsUtils.validate({ apiKey: '' });
         expect(settings.apiKey).toBe('');
-        expect(settings.defaultSystemPrompt).toBe(''); // Should allow empty system prompt
         expect(settings.apiEndpoint).toBe('');
      });
   });
@@ -147,10 +118,10 @@ describe('Settings Model & Utils', () => {
     });
 
     test('should return validated settings', () => {
-        const mockData = { apiKey: 'loaded-key', defaultTemperature: 1.5 }; // Invalid temp
+        const mockData = { apiKey: 'loaded-key', maxMessages: 5 }; // Too small, should be clamped
         const settings = loadSettings(mockData);
         expect(settings.apiKey).toBe('loaded-key');
-        expect(settings.defaultTemperature).toBe(1); // Check validation occurred
+        expect(settings.maxMessages).toBe(10); // Check validation occurred 
         expect(settings.provider).toBe(DEFAULT_SETTINGS.provider); // Check default merge
     });
   });

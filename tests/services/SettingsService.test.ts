@@ -71,14 +71,20 @@ describe('SettingsService', () => {
   test('should migrate settings from old format', async () => {
     const oldSettings = {
       apiKey: 'old-key',
-      bcps: 'System,Vault,Editor' // Old format
+      // Old settings that have been removed should be ignored
+      theme: 'dark',
+      fontSize: 16,
+      defaultTemperature: 0.9
     };
     
     const settingsManager = await settingsService.initialize(oldSettings);
     const settings = settingsManager.getSettings();
     
     expect(settings.apiKey).toBe('old-key');
-    expect(settings.autoLoadBCPs).toEqual(['System', 'Vault', 'Editor']); // Should be migrated to array
+    // Should not have the removed properties
+    expect(settings).not.toHaveProperty('theme');
+    expect(settings).not.toHaveProperty('fontSize');
+    expect(settings).not.toHaveProperty('defaultTemperature');
   });
   
   test('should save settings to plugin data', async () => {

@@ -44,6 +44,9 @@ export interface Conversation {
   
   /** Whether this conversation is starred/favorited */
   isStarred?: boolean;
+  
+  /** Maximum number of iterations (tool calls) the agent can take in a single response */
+  maxIterations?: number;
 }
 
 /**
@@ -142,9 +145,10 @@ export class ConversationUtils {
   /**
    * Creates a new Conversation object with default values and generated IDs.
    * @param title Optional title for the new conversation. Defaults to a timestamped title.
+   * @param maxIterations Optional maximum number of iterations (tool calls) per response. Defaults to 10.
    * @returns A new Conversation object.
    */
-  static createNew(title?: string): Conversation {
+  static createNew(title?: string, maxIterations: number = 10): Conversation {
     const id = this.generateId();
     const now = Date.now();
 
@@ -156,7 +160,8 @@ export class ConversationUtils {
       messages: [],
       folderId: null,
       tags: [],
-      isStarred: false
+      isStarred: false,
+      maxIterations
     };
   }
 
