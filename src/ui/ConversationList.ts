@@ -164,27 +164,30 @@ export class ConversationList extends Component {
       })
     );
     
-    // Register for custom events
-    document.addEventListener('conversation:create', (event: CustomEvent) => {
-      const detail = event.detail;
+    // Create handlers for custom events and store references so we can remove them on unload
+    const conversationCreateHandler = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const detail = customEvent.detail;
       if (detail && detail.folderId) {
         this.createNewConversation(undefined, detail.folderId);
       } else {
         this.createNewConversation();
       }
-    });
+    };
     
-    document.addEventListener('folder:create', (event: CustomEvent) => {
-      const detail = event.detail;
+    const folderCreateHandler = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const detail = customEvent.detail;
       if (detail && detail.parentId) {
         this.createFolder(undefined, detail.parentId);
       } else {
         this.createFolder();
       }
-    });
+    };
     
-    document.addEventListener('folder:moved', (event: CustomEvent) => {
-      const detail = event.detail;
+    const folderMovedHandler = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const detail = customEvent.detail;
       if (detail && detail.folderId && detail.targetFolderId) {
         // Handle folder moved event
         // This would typically update the folder's parent ID
@@ -192,13 +195,28 @@ export class ConversationList extends Component {
         // TODO: Implement folder moving functionality
         this.render();
       }
-    });
+    };
     
-    document.addEventListener('conversation:moved', (event: CustomEvent) => {
-      const detail = event.detail;
+    const conversationMovedHandler = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const detail = customEvent.detail;
       if (detail && detail.conversationId && detail.folderId !== undefined) {
         this.moveConversationToFolder(detail.conversationId, detail.folderId);
       }
+    };
+
+    // Add event listeners and register for cleanup on component unload
+    document.addEventListener('conversation:create', conversationCreateHandler);
+    document.addEventListener('folder:create', folderCreateHandler);
+    document.addEventListener('folder:moved', folderMovedHandler);
+    document.addEventListener('conversation:moved', conversationMovedHandler);
+    
+    // Register cleanup function to be called when component is unloaded
+    this.register(() => {
+      document.removeEventListener('conversation:create', conversationCreateHandler);
+      document.removeEventListener('folder:create', folderCreateHandler);
+      document.removeEventListener('folder:moved', folderMovedHandler);
+      document.removeEventListener('conversation:moved', conversationMovedHandler);
     });
   }
   
@@ -207,15 +225,24 @@ export class ConversationList extends Component {
    */
   private registerKeyboardShortcuts(): void {
     // Add keyboard event listener to the container element
-    this.containerEl.addEventListener('keydown', this.handleKeyDown.bind(this));
+    const boundHandleKeyDown = this.handleKeyDown.bind(this);
+    this.containerEl.addEventListener('keydown', boundHandleKeyDown);
     
     // Add global keyboard shortcuts
-    document.addEventListener('keydown', (event: KeyboardEvent) => {
+    const globalKeyHandler = (event: KeyboardEvent) => {
       // Alt+F: Focus conversation list
       if (event.altKey && event.key === 'f') {
         event.preventDefault();
         this.containerEl.focus();
       }
+    };
+    
+    document.addEventListener('keydown', globalKeyHandler);
+    
+    // Register cleanup function
+    this.register(() => {
+      this.containerEl.removeEventListener('keydown', boundHandleKeyDown);
+      document.removeEventListener('keydown', globalKeyHandler);
     });
   }
   

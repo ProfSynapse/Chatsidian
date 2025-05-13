@@ -10,7 +10,7 @@
  * @file This file defines the MessageList and MessageComponent classes for displaying chat messages.
  */
 
-import { Component, MarkdownRenderer } from 'obsidian';
+import { Component, MarkdownRenderer, setIcon } from 'obsidian';
 import { Message, MessageRole, ConversationUtils, ToolCall, ToolResult } from '../models/Conversation';
 import { EventBus } from '../core/EventBus';
 import { ToolCallList, ToolCallListEventType } from './tools/ToolCallList';
@@ -135,7 +135,9 @@ export class MessageList extends Component {
    * Scroll the message list to the bottom
    */
   private scrollToBottom(): void {
-    this.containerEl.scrollTop = this.containerEl.scrollHeight;
+    // Find the scrollable container (might be parent of this container)
+    const scrollableContainer = this.containerEl.closest('.chatsidian-message-list-container') || this.containerEl;
+    scrollableContainer.scrollTop = scrollableContainer.scrollHeight;
   }
 }
 
@@ -208,8 +210,21 @@ export class MessageComponent extends Component {
     
     // Add avatar/icon based on role
     const avatarEl = messageEl.createDiv({ cls: 'chatsidian-message-avatar' });
-    const avatarIcon = role === MessageRole.User ? 'user' : 'bot';
-    avatarEl.innerHTML = `<div class="chatsidian-avatar-icon">${avatarIcon}</div>`;
+    const iconEl = avatarEl.createDiv({ cls: 'chatsidian-avatar-icon' });
+    
+    // Use the imported setIcon function
+    try {
+      if (role === MessageRole.User) {
+        iconEl.setText('U'); // Fallback text
+        setIcon(iconEl, 'user');
+      } else {
+        iconEl.setText('A'); // Fallback text
+        setIcon(iconEl, 'bot');
+      }
+    } catch (e) {
+      // Keep the fallback text if icon fails
+      console.warn('Could not set icon:', e);
+    }
     
     // Create content container
     const contentEl = messageEl.createDiv({ cls: 'chatsidian-message-content' });
@@ -224,8 +239,17 @@ export class MessageComponent extends Component {
     // Create markdown content element
     const markdownEl = contentEl.createDiv({ cls: 'chatsidian-message-markdown' });
     
-    // Render markdown content
-    this.renderMarkdown(content, markdownEl);
+    // Handle typing indicator or render markdown
+    if (content === '...') {
+      // Create typing indicator with animated dots
+      const typingIndicatorEl = markdownEl.createDiv({ cls: 'chatsidian-typing-indicator' });
+      for (let i = 0; i < 3; i++) {
+        typingIndicatorEl.createDiv({ cls: 'chatsidian-typing-dot' });
+      }
+    } else {
+      // Render markdown content
+      this.renderMarkdown(content, markdownEl);
+    }
     
     // Render tool calls if present
     if (toolCalls && toolCalls.length > 0) {

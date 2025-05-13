@@ -74,7 +74,7 @@ export class ChatView extends ItemView {
   /**
    * Whether the sidebar is currently open
    */
-  private isSidebarOpen: boolean = false;
+  private isSidebarOpen: boolean = true;
   
   /**
    * Current active conversation
@@ -172,6 +172,13 @@ export class ChatView extends ItemView {
     this.sidebarContainerEl = containerEl.createDiv({ cls: 'chatsidian-sidebar-container' });
     this.contentContainerEl = containerEl.createDiv({ cls: 'chatsidian-content-container' });
     
+    // Set initial sidebar state
+    if (!this.isSidebarOpen) {
+      containerEl.addClass('chatsidian-sidebar-closed');
+    } else {
+      containerEl.addClass('chatsidian-sidebar-open');
+    }
+    
     // Initialize conversation list in sidebar
     const conversationList = new ConversationList(
       this.sidebarContainerEl,
@@ -253,10 +260,10 @@ export class ChatView extends ItemView {
       this.messageList.setMessages(conversation.messages);
     }
     
-    // Update the header with the conversation title
-    const headerEl = this.contentContainerEl.querySelector('.chatsidian-header');
-    if (headerEl) {
-      headerEl.textContent = conversation.title;
+    // Update just the title in the header
+    const titleEl = this.contentContainerEl.querySelector('.chatsidian-header-title');
+    if (titleEl) {
+      titleEl.setText(conversation.title);
     }
   }
   
@@ -365,6 +372,11 @@ export class ChatView extends ItemView {
     
     if (this.messageList) {
       this.messageList.addMessage(typingMessage);
+      // Scroll to bottom when adding typing indicator
+      const messageListContainer = this.contentContainerEl.querySelector('.chatsidian-message-list-container');
+      if (messageListContainer) {
+        messageListContainer.scrollTop = messageListContainer.scrollHeight;
+      }
     }
     
     try {
@@ -435,9 +447,11 @@ export class ChatView extends ItemView {
     this.isSidebarOpen = !this.isSidebarOpen;
     
     if (this.isSidebarOpen) {
+      this.containerEl.removeClass('chatsidian-sidebar-closed');
       this.containerEl.addClass('chatsidian-sidebar-open');
     } else {
       this.containerEl.removeClass('chatsidian-sidebar-open');
+      this.containerEl.addClass('chatsidian-sidebar-closed');
     }
   }
   

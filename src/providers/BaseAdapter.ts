@@ -15,7 +15,8 @@ import {
   ProviderResponse 
 } from '../models/Provider';
 import { ProviderAdapter } from './ProviderAdapter';
-import { ModelsLoader } from './ModelsLoader';
+import { modelRegistry } from './ModelRegistry';
+import { ProviderType, ProviderTypeUtils } from '../ui/models/ProviderType';
 
 /**
  * Abstract base class for provider adapters.
@@ -61,14 +62,16 @@ export abstract class BaseAdapter implements ProviderAdapter {
 
   /**
    * Get a list of available models from this provider.
-   * Default implementation uses the ModelsLoader to get models from the YAML file.
+   * Default implementation uses the ModelRegistry to get models.
    * Providers can override this method to fetch models from their API if needed.
    */
   async getAvailableModels(): Promise<ModelInfo[]> {
     try {
-      // Get models from the centralized YAML file
-      const modelsLoader = ModelsLoader.getInstance();
-      return modelsLoader.getModelsForProvider(this.provider);
+      // Get models from the centralized ModelRegistry
+      if (ProviderTypeUtils.isValidProviderType(this.provider)) {
+        return modelRegistry.getModelsForProvider(this.provider as ProviderType);
+      }
+      return [];
     } catch (error) {
       this.logError('getAvailableModels', error);
       return [];

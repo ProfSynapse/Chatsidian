@@ -12,10 +12,11 @@
 import { App, Plugin, PluginSettingTab, Setting } from '../utils/obsidian-imports';
 import { ChatsidianSettings, DEFAULT_SETTINGS, SettingsUtils } from '../models/Settings';
 import { EventBus } from './EventBus';
-import { ModelsLoader } from '../providers/ModelsLoader';
+import { modelRegistry } from '../providers/ModelRegistry';
 import { ModelSelectorComponent } from '../ui/models/ModelSelectorComponent';
 import { ProviderSettings } from '../ui/models/ProviderSettings';
 import { AgentDefinition } from '../agents/AgentTypes';
+import { ProviderType, ProviderTypeUtils } from '../ui/models/ProviderType';
 
 /**
  * SettingsManager class for managing plugin settings.
@@ -258,9 +259,10 @@ export class ChatsidianSettingTab extends PluginSettingTab {
           }));
     }
     
-    // Get models for current provider from the centralized models.yaml
-    const modelsLoader = ModelsLoader.getInstance();
-    const providerModels = modelsLoader.getModelsForProvider(settings.provider);
+    // Get models for current provider from the ModelRegistry
+    const providerModels = ProviderTypeUtils.isValidProviderType(settings.provider) 
+      ? modelRegistry.getModelsForProvider(settings.provider as ProviderType)
+      : [];
     
     new Setting(containerEl)
       .setName('Model')

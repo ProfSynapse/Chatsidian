@@ -7,7 +7,7 @@
  * Specific provider adapters can extend this class and override methods as needed
  * while inheriting common behavior.
  */
-import { ModelsLoader } from './ModelsLoader';
+import { modelRegistry } from './ModelRegistry';
 /**
  * Abstract base class for provider adapters.
  * Implements common functionality and provides a foundation for specific adapters.
@@ -29,14 +29,13 @@ export class BaseAdapter {
     }
     /**
      * Get a list of available models from this provider.
-     * Default implementation uses the ModelsLoader to get models from the YAML file.
+     * Default implementation uses the ModelRegistry to get models.
      * Providers can override this method to fetch models from their API if needed.
      */
     async getAvailableModels() {
         try {
-            // Get models from the centralized YAML file
-            const modelsLoader = ModelsLoader.getInstance();
-            return modelsLoader.getModelsForProvider(this.provider);
+            // Get models from the ModelRegistry
+            return modelRegistry.getModelsForProvider(this.provider);
         }
         catch (error) {
             this.logError('getAvailableModels', error);

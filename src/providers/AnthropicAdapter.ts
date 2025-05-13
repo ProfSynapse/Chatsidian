@@ -14,7 +14,8 @@ import {
   ProviderRequest, 
   ProviderResponse
 } from '../models/Provider';
-import { ModelsLoader } from './ModelsLoader';
+import { modelRegistry } from './ModelRegistry';
+import { ProviderType } from '../ui/models/ProviderType';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -86,14 +87,12 @@ export class AnthropicAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Anthropic doesn't have a models endpoint, so we use the centralized models.yaml
-      const modelsLoader = ModelsLoader.getInstance();
-      return modelsLoader.getModelsForProvider(this.provider);
+      // Anthropic doesn't have a models endpoint, so we use the ModelRegistry
+      return modelRegistry.getModelsForProvider('anthropic' as ProviderType);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      // Still use the centralized models.yaml even in error case
-      const modelsLoader = ModelsLoader.getInstance();
-      return modelsLoader.getModelsForProvider(this.provider);
+      // Still use the ModelRegistry even in error case
+      return modelRegistry.getModelsForProvider('anthropic' as ProviderType);
     }
   }
 

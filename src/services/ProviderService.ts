@@ -5,7 +5,7 @@
  * for interacting with AI providers. It handles provider creation, caching,
  * and provides methods for sending requests to providers.
  * 
- * It also integrates with the ModelsLoader to provide access to model information.
+ * It also integrates with the ModelRegistry to provide access to model information.
  */
 
 import { App } from 'obsidian';
@@ -14,6 +14,7 @@ import { SettingsService } from './SettingsService';
 import { ModelInfo, ProviderChunk, ProviderMessage, ProviderRequest, ProviderResponse } from '../models/Provider';
 import { ProviderAdapter } from '../providers/ProviderAdapter';
 import { ProviderFactory } from '../providers/ProviderFactory';
+import { modelRegistry } from '../providers/ModelRegistry';
 
 /**
  * Service for managing AI provider adapters and model information.
@@ -45,17 +46,15 @@ export class ProviderService {
   /**
    * Initialize the ProviderService.
    * This must be called before using any methods that access model information.
-   * 
-   * @returns A promise that resolves when initialization is complete
    */
-  public async initialize(): Promise<void> {
+  public initialize(): void {
     if (this.initialized) {
       return;
     }
     
     try {
-      // Initialize the ProviderFactory
-      await ProviderFactory.initialize(this.app);
+      // Initialize the ProviderFactory (synchronous now)
+      ProviderFactory.initialize(this.app);
       this.initialized = true;
     } catch (error) {
       console.error('Failed to initialize ProviderService:', error);
@@ -131,7 +130,7 @@ export class ProviderService {
 
   /**
    * Get a list of available models from a provider.
-   * Uses the centralized model information from the YAML file.
+   * Uses the centralized model information from the ModelRegistry.
    * 
    * @param provider The name of the provider
    * @returns An array of ModelInfo objects for the provider
@@ -245,11 +244,11 @@ export class ProviderService {
       return ProviderFactory.getSupportedProviders();
     }
     
-    // Return the union of providers from the factory and the YAML file
+    // Return the union of providers from the factory and the ModelRegistry
     const factoryProviders = new Set(ProviderFactory.getSupportedProviders());
-    const yamlProviders = new Set(ProviderFactory.getModelsForProvider('').map(model => model.provider));
+    const modelRegistryProviders = new Set(modelRegistry.getAllModels().map(model => model.provider));
     
-    return Array.from(new Set([...factoryProviders, ...yamlProviders]));
+    return Array.from(new Set([...factoryProviders, ...modelRegistryProviders]));
   }
 
   /**

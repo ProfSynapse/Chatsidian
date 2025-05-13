@@ -110,23 +110,26 @@ export default class ChatsidianPlugin extends Plugin {
     const startTime = performance.now();
     
     try {
-    // Initialize core components
-    await this.initializeCore();
-    
-    // Register commands
-    this.registerCommands();
-    
-    // Register views (placeholder for now)
-    this.registerViews();
-    
-    // Settings tab is now registered in the SettingsService initialization (line 61)
-    // so removing the duplicate registration here that causes the error
-    
-    // Register event listeners
-    this.registerEventListeners();
+      // Initialize core components
+      await this.initializeCore();
       
+      // Register commands
+      this.registerCommands();
+      
+      // Register views (placeholder for now)
+      this.registerViews();
+      
+      // Settings tab is now registered in the SettingsService initialization (line 61)
+      // so removing the duplicate registration here that causes the error
+      
+      // Register event listeners
+      this.registerEventListeners();
+        
       // Check for version changes and run migrations if needed
       await this.handleVersionChanges();
+      
+      // Make sure no ChatView is auto-opened on startup by closing any that might have opened
+      this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT);
       
       // Emit plugin loaded event
       this.eventBus.emit('plugin:loaded', undefined);
@@ -186,7 +189,7 @@ export default class ChatsidianPlugin extends Plugin {
     
     // Initialize provider service
     this.providerService = new ProviderService(this.app, this.eventBus, this.settingsService);
-    await this.providerService.initialize();
+    this.providerService.initialize();
     
     // Initialize BCP Registry - using Component pattern
     this.bcpRegistry = new BCPRegistry(this.app, this.settings, this.vaultFacade, this.eventBus);
@@ -282,12 +285,7 @@ export default class ChatsidianPlugin extends Plugin {
       this.activateChatView();
     });
     
-    // Add BCP ribbon icon
-    this.addRibbonIcon('package', 'Chatsidian BCPs', () => {
-      this.debug('BCP ribbon icon clicked');
-      const bcpInfo = this.bcpRegistry.listPacksDetailed();
-      new Notice(`BCPs: ${bcpInfo.loaded} loaded of ${bcpInfo.total} available`);
-    });
+    // BCP ribbon icon removed as requested
     
     // Add A2A command
     this.addCommand({
@@ -312,7 +310,7 @@ export default class ChatsidianPlugin extends Plugin {
    * Register plugin views.
    */
   private registerViews(): void {
-    // Register chat view
+    // Register chat view (only register the view type, don't activate it)
     this.registerView(
       VIEW_TYPE_CHAT,
       (leaf) => new ChatView(
@@ -345,11 +343,8 @@ export default class ChatsidianPlugin extends Plugin {
    * Load CSS styles for the plugin.
    */
   private loadStyles(): void {
-    // Add styles.css to the document
-    const styleEl = document.createElement('link');
-    styleEl.rel = 'stylesheet';
-    styleEl.href = this.app.vault.adapter.getResourcePath('styles.css');
-    document.head.appendChild(styleEl);
+    // Obsidian automatically loads styles.css from the plugin directory
+    // We don't need to load it manually - just trigger Style Settings if needed
     
     // Trigger Style Settings plugin to parse our CSS variables
     // This allows users to customize the plugin appearance
@@ -363,7 +358,7 @@ export default class ChatsidianPlugin extends Plugin {
   
   /**
    * Activate the chat view.
-   * Opens the chat view in the left sidebar or focuses an existing one.
+   * Opens the chat view in the right sidebar or focuses an existing one.
    */
   public async activateChatView(): Promise<void> {
     const { workspace } = this.app;
@@ -373,8 +368,8 @@ export default class ChatsidianPlugin extends Plugin {
       let leaf = workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
       
       if (!leaf) {
-        // Create new leaf in left sidebar
-        const newLeaf = workspace.getLeftLeaf(false);
+        // Create new leaf in RIGHT sidebar
+        const newLeaf = workspace.getRightLeaf(false);
         
         if (!newLeaf) {
           throw new Error('Could not create leaf for chat view');
@@ -387,12 +382,36 @@ export default class ChatsidianPlugin extends Plugin {
         });
         
         leaf = newLeaf;
+      } else {
+        // If leaf exists but is not in the right sidebar, close it and create a new one
+        // This fixes the issue where the view appears in the wrong location
+        const isInRightSidebar = leaf.getRoot() === workspace.rightSplit;
+        
+        if (!isInRightSidebar) {
+          // Detach the existing leaf
+          workspace.detachLeavesOfType(VIEW_TYPE_CHAT);
+          
+          // Create a new one in the right sidebar
+          const newLeaf = workspace.getRightLeaf(false);
+          
+          if (!newLeaf) {
+            throw new Error('Could not create leaf for chat view');
+          }
+          
+          // Set view state
+          await newLeaf.setViewState({
+            type: VIEW_TYPE_CHAT,
+            active: true
+          });
+          
+          leaf = newLeaf;
+        }
       }
       
       // Reveal leaf - at this point leaf should not be null
       workspace.revealLeaf(leaf);
       
-      this.debug('Chat view activated in left sidebar');
+      this.debug('Chat view activated in right sidebar');
     } catch (error) {
       this.debug('Failed to activate chat view:', error);
       new Notice('Failed to open chat view');

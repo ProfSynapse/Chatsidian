@@ -13,7 +13,8 @@ import {
   ProviderRequest, 
   ProviderResponse
 } from '../models/Provider';
-import { ModelsLoader } from './ModelsLoader';
+import { modelRegistry } from './ModelRegistry';
+import { ProviderType } from '../ui/models/ProviderType';
 import { BaseAdapter } from './BaseAdapter';
 
 /**
@@ -79,14 +80,12 @@ export class OpenAIAdapter extends BaseAdapter {
     try {
       this.validateApiKey();
       
-      // Use the centralized models.yaml instead of API call
-      const modelsLoader = ModelsLoader.getInstance();
-      return modelsLoader.getModelsForProvider(this.provider);
+      // Use the ModelRegistry instead of API call
+      return modelRegistry.getModelsForProvider('openai' as ProviderType);
     } catch (error) {
       this.logError('getAvailableModels', error);
-      // Still use the centralized models.yaml even in error case
-      const modelsLoader = ModelsLoader.getInstance();
-      return modelsLoader.getModelsForProvider(this.provider);
+      // Still use the ModelRegistry even in error case
+      return modelRegistry.getModelsForProvider('openai' as ProviderType);
     }
   }
 
