@@ -134,18 +134,12 @@ describe('ChatsidianSettingTab', () => {
     
     // Verify sections were created
     expect(createElSpy).toHaveBeenCalledWith('h2', { text: 'API Settings' });
-    expect(createElSpy).toHaveBeenCalledWith('h2', { text: 'Models & Agents' });
+    expect(createElSpy).toHaveBeenCalledWith('h2', { text: 'Agent Management' });
     expect(createElSpy).toHaveBeenCalledWith('h2', { text: 'Conversation Settings' });
     expect(createElSpy).toHaveBeenCalledWith('h2', { text: 'UI Settings' });
     expect(createElSpy).toHaveBeenCalledWith('h2', { text: 'Advanced Settings' });
     
-    // Verify model selector container was created
-    expect(createDivSpy).toHaveBeenCalledWith({ cls: 'chatsidian-settings-model-selector' });
-    
-    // Verify provider settings container was created
-    expect(createDivSpy).toHaveBeenCalledWith({ cls: 'chatsidian-settings-provider-settings' });
-    
-    // Verify agent management container was created
+    // Verify agent management container was created 
     expect(createDivSpy).toHaveBeenCalledWith({ cls: 'chatsidian-settings-agent-management' });
   });
   
@@ -186,26 +180,26 @@ describe('ChatsidianSettingTab', () => {
     (global as any).Setting = originalSetting;
   });
   
-  test('should create model selector component', () => {
+  test('should not create model selector component', () => {
     // Import the mocked class
     const { ModelSelectorComponent } = require('../../src/ui/models/ModelSelectorComponent');
     
     // Call display method
     settingsTab.display();
     
-    // Verify ModelSelectorComponent was created
-    expect(ModelSelectorComponent).toHaveBeenCalled();
+    // Verify ModelSelectorComponent was NOT created since it's been removed
+    expect(ModelSelectorComponent).not.toHaveBeenCalled();
   });
   
-  test('should create provider settings component', () => {
+  test('should not create provider settings component', () => {
     // Import the mocked class
     const { ProviderSettings } = require('../../src/ui/models/ProviderSettings');
     
     // Call display method
     settingsTab.display();
     
-    // Verify ProviderSettings was created
-    expect(ProviderSettings).toHaveBeenCalled();
+    // Verify ProviderSettings was NOT created since it's been removed
+    expect(ProviderSettings).not.toHaveBeenCalled();
   });
   
   test('should handle custom agents', async () => {

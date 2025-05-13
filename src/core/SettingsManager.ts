@@ -9,7 +9,7 @@
  */
 
 // Import from obsidian in production, but use mocks in tests
-import { App, Plugin, PluginSettingTab, Setting } from '../utils/obsidian-imports';
+import { App, Plugin, PluginSettingTab, Setting, Notice } from '../utils/obsidian-imports';
 import { ChatsidianSettings, DEFAULT_SETTINGS, SettingsUtils } from '../models/Settings';
 import { EventBus } from './EventBus';
 import { modelRegistry } from '../providers/ModelRegistry';
@@ -206,7 +206,7 @@ export class ChatsidianSettingTab extends PluginSettingTab {
     const settings = this.settings.getSettings();
     
     this.createApiSettings(containerEl, settings);
-    this.createModelAndAgentSettings(containerEl, settings);
+    this.createAgentSettings(containerEl, settings);
     this.createConversationSettings(containerEl, settings);
     this.createUiSettings(containerEl, settings);
     this.createAdvancedSettings(containerEl, settings);
@@ -381,53 +381,44 @@ export class ChatsidianSettingTab extends PluginSettingTab {
   }
   
   /**
-   * Create model and agent settings section.
+   * Create agent settings section.
    * @param containerEl Container element
    * @param settings Current settings
    */
-  private createModelAndAgentSettings(containerEl: HTMLElement, settings: ChatsidianSettings): void {
-    containerEl.createEl('h2', { text: 'Models & Agents' });
+  private createAgentSettings(containerEl: HTMLElement, settings: ChatsidianSettings): void {
+    containerEl.createEl('h2', { text: 'Agent Settings' });
     
-    // Create container for model selector component
-    const modelSelectorContainer = containerEl.createDiv({ cls: 'chatsidian-settings-model-selector' });
+    // Create container for agent display
+    const agentSelectorContainer = containerEl.createDiv({ cls: 'chatsidian-settings-agent-selector' });
     
-    // Create model selector component
     if (this.plugin.providerService && this.plugin.agentSystem) {
-      // Create a local event bus for the model selector component
+      // Create a local event bus for the agent selector component
       const localEventBus = new EventBus();
       
-      // Create model selector component
-      new ModelSelectorComponent(
-        modelSelectorContainer,
-        localEventBus,
-        this.plugin.providerService,
-        this.plugin.settingsService,
-        this.plugin.agentSystem,
-        this.app,
-        {
-          showProviderSelector: true,
-          showModelCapabilities: true,
-          filterByProvider: true,
-          filterByToolSupport: false,
-          showBuiltInAgents: true,
-          showCustomAgents: true,
-          allowCreatingAgents: true,
-          allowEditingAgents: true,
-          allowDeletingAgents: true,
-          showSettingsButton: false
-        }
-      );
-      
-      // Listen for model and agent selection events
-      localEventBus.on('model-selector:model-selected', async (data: any) => {
-        if (data.model) {
-          await this.settings.updateSettings({
-            provider: data.model.provider,
-            model: data.model.id
-          });
-        }
+      // Create standalone agent selector component
+      const agentSystem = this.plugin.agentSystem;
+      import('../ui/models/AgentSelector').then(({ AgentSelector }) => {
+        new AgentSelector(
+          agentSelectorContainer,
+          localEventBus,
+          agentSystem,
+          {
+            showBuiltInAgents: true,
+            showCustomAgents: true,
+            allowCreatingAgents: true,
+            allowEditingAgents: true,
+            allowDeletingAgents: true
+          },
+          settings.defaultAgentId
+        );
+      }).catch(err => {
+        console.error('Failed to load AgentSelector component:', err);
+        agentSelectorContainer.createEl('p', { 
+          text: 'Failed to load agent selector component. Please reload the plugin.' 
+        });
       });
       
+      // Listen for agent selection events
       localEventBus.on('agent-selector:agent-selected', async (data: any) => {
         if (data.agent) {
           await this.settings.updateSettings({
@@ -435,98 +426,28 @@ export class ChatsidianSettingTab extends PluginSettingTab {
           });
         }
       });
-    } else {
-      modelSelectorContainer.createEl('p', { 
-        text: 'Model and agent selection components not available. Please reload the plugin.' 
-      });
-    }
-    
-    // Provider-specific settings
-    containerEl.createEl('h3', { text: 'Provider Settings' });
-    const providerSettingsContainer = containerEl.createDiv({ cls: 'chatsidian-settings-provider-settings' });
-    
-    if (this.plugin.providerService) {
-      // Create provider settings component
-      const providerSettings = new ProviderSettings(
-        providerSettingsContainer,
-        this.plugin.eventBus,
-        this.plugin.settingsService,
-        this.plugin.providerService,
-        settings.provider
-      );
-    } else {
-      providerSettingsContainer.createEl('p', { 
-        text: 'Provider settings component not available. Please reload the plugin.' 
-      });
-    }
-    
-    // Agent management
-    containerEl.createEl('h3', { text: 'Agent Management' });
-    const agentManagementContainer = containerEl.createDiv({ cls: 'chatsidian-settings-agent-management' });
-    
-    if (this.plugin.agentSystem) {
-      // Create agent management UI
-      const agentSystem = this.plugin.agentSystem;
       
-      // List custom agents
-      const customAgents = settings.customAgents || [];
-      
-      if (customAgents.length > 0) {
-        const agentList = agentManagementContainer.createEl('ul', { cls: 'chatsidian-agent-list' });
-        
-        customAgents.forEach((agent: AgentDefinition) => {
-          const agentItem = agentList.createEl('li', { cls: 'chatsidian-agent-item' });
-          
-          agentItem.createEl('span', { text: agent.name, cls: 'chatsidian-agent-name' });
-          
-          const agentActions = agentItem.createDiv({ cls: 'chatsidian-agent-actions' });
-          
-          // Edit button
-          const editButton = agentActions.createEl('button', { text: 'Edit', cls: 'chatsidian-agent-edit-button' });
-          editButton.addEventListener('click', () => {
-            // Open agent editor (placeholder for now)
-            new this.plugin.app.Notice(`Editing agent ${agent.name} (to be implemented)`);
-          });
-          
-          // Delete button
-          const deleteButton = agentActions.createEl('button', { text: 'Delete', cls: 'chatsidian-agent-delete-button' });
-          deleteButton.addEventListener('click', async () => {
-            const confirmed = await this.plugin.app.modal.confirm(
-              `Delete Agent`,
-              `Are you sure you want to delete the agent "${agent.name}"? This action cannot be undone.`
-            );
-            
-            if (confirmed) {
-              // Remove agent from custom agents
-              const updatedAgents = customAgents.filter((a: AgentDefinition) => a.id !== agent.id);
-              await this.settings.updateSettings({ customAgents: updatedAgents });
-              
-              // Delete from agent system
-              await agentSystem.deleteCustomAgentDefinition(agent.id);
-              
-              // Refresh UI
-              this.display();
-              
-              new this.plugin.app.Notice(`Agent "${agent.name}" deleted`);
-            }
-          });
-        });
-      } else {
-        agentManagementContainer.createEl('p', { text: 'No custom agents created yet.' });
-      }
-      
-      // Create new agent button
-      const createAgentButton = agentManagementContainer.createEl('button', { 
-        text: 'Create New Agent', 
-        cls: 'chatsidian-create-agent-button' 
+      // Listen for agent creation events
+      localEventBus.on('agent-selector:agent-created', async (data: any) => {
+        if (data.agent) {
+          const customAgents = settings.customAgents || [];
+          customAgents.push(data.agent);
+          await this.settings.updateSettings({ customAgents });
+          new Notice(`Agent "${data.agent.name}" created`);
+        }
       });
       
-      createAgentButton.addEventListener('click', () => {
-        // Open agent creation UI (placeholder for now)
-        new this.plugin.app.Notice('Creating new agent (to be implemented)');
+      // Listen for agent deletion events
+      localEventBus.on('agent-selector:agent-deleted', async (data: any) => {
+        if (data.agentId) {
+          const customAgents = settings.customAgents || [];
+          const updatedAgents = customAgents.filter((a: AgentDefinition) => a.id !== data.agentId);
+          await this.settings.updateSettings({ customAgents: updatedAgents });
+          new Notice(`Agent deleted`);
+        }
       });
     } else {
-      agentManagementContainer.createEl('p', { 
+      agentSelectorContainer.createEl('p', { 
         text: 'Agent management not available. Please reload the plugin.' 
       });
     }
