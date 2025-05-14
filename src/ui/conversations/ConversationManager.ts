@@ -406,17 +406,31 @@ export class ConversationManager {
   }
   
   /**
-   * Update a conversation in the local list
+   * Update a conversation in the local list and save to storage
    * 
    * @param updatedConversation - The updated conversation
    */
-  public updateConversation(updatedConversation: Conversation): void {
+  public async updateConversation(updatedConversation: Conversation): Promise<void> {
+    console.log(`ConversationManager.updateConversation: Updating conversation ${updatedConversation.id} with folderId ${updatedConversation.folderId === undefined ? 'undefined' : updatedConversation.folderId === null ? 'null' : updatedConversation.folderId}`);
+    
     // Find the conversation
     const index = this.conversations.findIndex(c => c.id === updatedConversation.id);
     
     if (index !== -1) {
-      // Update the conversation
+      // Update the conversation in memory
       this.conversations[index] = updatedConversation;
+      
+      // Also save to storage (IMPORTANT!)
+      try {
+        console.log(`ConversationManager.updateConversation: Saving to storage`);
+        await this.storageManager.saveConversation(updatedConversation);
+        console.log(`ConversationManager.updateConversation: Successfully saved to storage`);
+      } catch (error) {
+        console.error(`ConversationManager.updateConversation: Failed to save conversation ${updatedConversation.id} to storage:`, error);
+        new Notice(`Failed to save conversation: ${error.message || 'Unknown error'}`);
+      }
+    } else {
+      console.error(`ConversationManager.updateConversation: Conversation ${updatedConversation.id} not found in memory`);
     }
   }
 }

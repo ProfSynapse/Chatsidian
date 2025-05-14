@@ -1541,9 +1541,11 @@ settings:
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.chatsidian-folder-drop-target {
+.chatsidian-folder-drop-target,
+.chatsidian-drop-target {
   background-color: var(--background-primary-alt);
   box-shadow: 0 0 0 2px var(--interactive-accent);
+  border: 1px dashed var(--interactive-accent);
 }
 
 .chatsidian-folder-drop-indicator {

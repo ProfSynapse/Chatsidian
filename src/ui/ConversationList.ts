@@ -562,6 +562,9 @@ export class ConversationList extends Component {
       // Create conversation list container with context menu for empty space
       const listContainerEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-list-container' });
       
+      // Set up drag and drop for the container to allow dropping conversations at root level
+      this.setupContainerDragAndDrop(listContainerEl);
+      
       // Add right-click context menu to empty space for folder creation
       listContainerEl.addEventListener('contextmenu', (event) => {
         // Only show context menu if clicking on the container itself, not a child element
@@ -977,17 +980,30 @@ export class ConversationList extends Component {
    * @param folderId - The ID of the folder to move to, or null to ungroup
    */
   public async moveConversationToFolder(conversationId: string, folderId: string | null): Promise<void> {
+    console.log(`ConversationList.moveConversationToFolder: Moving conversation ${conversationId} to folder ${folderId === null ? 'null' : folderId}`);
+    
+    // Call FolderManager to move the conversation
     await this.folderManager.moveConversationToFolder(conversationId, folderId);
     
     // Update the conversation in the conversation manager
     const conversation = this.conversationManager.getConversations().find(c => c.id === conversationId);
     if (conversation) {
+      const oldFolderId = conversation.folderId;
       conversation.folderId = folderId;
-      this.conversationManager.updateConversation(conversation);
+      console.log(`ConversationList.moveConversationToFolder: Updated in-memory conversation folderId from ${oldFolderId === undefined ? 'undefined' : oldFolderId === null ? 'null' : oldFolderId} to ${folderId === null ? 'null' : folderId}`);
+      
+      // Ensure the update is also saved to disk
+      console.log(`ConversationList.moveConversationToFolder: Calling conversationManager.updateConversation`);
+      await this.conversationManager.updateConversation(conversation);
+    } else {
+      console.error(`ConversationList.moveConversationToFolder: Could not find conversation ${conversationId} in memory`);
     }
     
     // Re-render the conversation list
+    console.log(`ConversationList.moveConversationToFolder: Re-rendering conversation list`);
     this.render();
+    
+    console.log(`ConversationList.moveConversationToFolder: Completed moving conversation`);
   }
   
   /**
@@ -1015,7 +1031,7 @@ export class ConversationList extends Component {
     const conversation = this.conversationManager.getConversations().find(c => c.id === conversationId);
     if (conversation) {
       conversation.tags = tags;
-      this.conversationManager.updateConversation(conversation);
+      await this.conversationManager.updateConversation(conversation);
     }
     
     // Update available tags
@@ -1097,6 +1113,57 @@ export class ConversationList extends Component {
    */
   public getConversations(): Conversation[] {
     return this.conversationManager.getConversations();
+  }
+  
+  /**
+   * Setup drag and drop for the container to allow dropping conversations at root level
+   * 
+   * @param containerEl - The container element to set up drag and drop for
+   */
+  private setupContainerDragAndDrop(containerEl: HTMLElement): void {
+    // Add dragover event to show when an item can be dropped
+    containerEl.addEventListener('dragover', (event) => {
+      // Only accept dragover if it's directly on the container, not its children
+      if (event.target === containerEl) {
+        event.preventDefault();
+        containerEl.addClass('chatsidian-drop-target');
+      }
+    });
+    
+    // Add dragleave event to remove highlighting
+    containerEl.addEventListener('dragleave', (event) => {
+      if (event.target === containerEl) {
+        containerEl.removeClass('chatsidian-drop-target');
+      }
+    });
+    
+    // Add drop event to handle when an item is dropped
+    containerEl.addEventListener('drop', (event) => {
+      // Only accept drops if it's directly on the container, not its children
+      if (event.target === containerEl) {
+        event.preventDefault();
+        containerEl.removeClass('chatsidian-drop-target');
+        
+        // Get the dragged data
+        const data = event.dataTransfer?.getData('text/plain');
+        
+        if (data) {
+          try {
+            const dragData = JSON.parse(data);
+            
+            console.log('Drop detected on container:', dragData);
+            
+            // Handle conversation drop - move to root level (null folderId)
+            if (dragData.type === 'conversation') {
+              console.log(`Moving conversation ${dragData.id} to root level`);
+              this.moveConversationToFolder(dragData.id, null);
+            }
+          } catch (error) {
+            console.error('Failed to parse drag data:', error);
+          }
+        }
+      }
+    });
   }
   
   /**

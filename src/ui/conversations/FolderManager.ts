@@ -232,6 +232,8 @@ export class FolderManager {
    */
   public async moveConversationToFolder(conversationId: string, folderId: string | null): Promise<void> {
     try {
+      console.log(`FolderManager.moveConversationToFolder: Moving conversation ${conversationId} to folder ${folderId === null ? 'null' : folderId}`);
+      
       // If folderId is not null, verify folder exists
       if (folderId !== null && !this.folders.some(f => f.id === folderId)) {
         console.error(`Folder with ID ${folderId} not found`);
@@ -239,16 +241,23 @@ export class FolderManager {
       }
       
       // Move conversation to folder
-      await this.storageManager.moveConversationToFolder(
+      console.log(`FolderManager.moveConversationToFolder: Calling StorageManager.moveConversationToFolder`);
+      const updatedConversation = await this.storageManager.moveConversationToFolder(
         conversationId,
         folderId
       );
       
+      console.log(`FolderManager.moveConversationToFolder: StorageManager returned:`, 
+                  updatedConversation ? `conversation with folderId: ${updatedConversation.folderId}` : 'undefined');
+      
       // Emit event
+      console.log(`FolderManager.moveConversationToFolder: Emitting CONVERSATION_MOVED event`);
       this.eventBus.emit(ConversationListEventType.CONVERSATION_MOVED, {
         conversationId,
         folderId
       });
+      
+      console.log(`FolderManager.moveConversationToFolder: Successfully moved conversation to folder`);
     } catch (error) {
       console.error(`Failed to move conversation ${conversationId}:`, error);
       new Notice(`Failed to move conversation: ${error.message}`);

@@ -51,7 +51,14 @@ export class ConversationItem {
    * Render the conversation item
    */
   private render(): void {
-    const itemEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-item' });
+    const itemEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-item chatsidian-draggable' });
+    
+    // Make the item draggable
+    itemEl.setAttribute('draggable', 'true');
+    
+    // Add data attributes needed for drag operations
+    itemEl.setAttribute('data-conversation-id', this.conversation.id);
+    itemEl.setAttribute('data-type', 'conversation');
     
     // Add selected class if this is the selected conversation
     if (this.isSelected) {
@@ -156,6 +163,45 @@ export class ConversationItem {
       });
       
       menu.showAtMouseEvent(event);
+    });
+    
+    // Setup drag and drop functionality
+    this.setupDragAndDrop(itemEl);
+  }
+  
+  /**
+   * Setup drag and drop for conversation item
+   * 
+   * @param conversationEl - The conversation element
+   */
+  private setupDragAndDrop(conversationEl: HTMLElement): void {
+    // Add drag start event
+    conversationEl.addEventListener('dragstart', (event) => {
+      console.log(`ConversationItem: Drag started for conversation ${this.conversation.id}`);
+      
+      // Set drag data
+      event.dataTransfer?.setData('text/plain', JSON.stringify({
+        type: 'conversation',
+        id: this.conversation.id
+      }));
+      
+      // Set drag effect
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+      }
+      
+      // Add dragging class with delay for better visual feedback
+      setTimeout(() => {
+        conversationEl.addClass('chatsidian-dragging');
+      }, 0);
+    });
+    
+    // Add drag end event
+    conversationEl.addEventListener('dragend', () => {
+      console.log(`ConversationItem: Drag ended for conversation ${this.conversation.id}`);
+      
+      // Remove dragging class
+      conversationEl.removeClass('chatsidian-dragging');
     });
   }
 }
