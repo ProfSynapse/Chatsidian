@@ -25,6 +25,7 @@ export class ConversationManager {
   private eventBus: EventBus;
   private conversations: Conversation[] = [];
   private selectedConversationId: string | null = null;
+  private _isHandlingMetadataCleanup: boolean = false;
   
   /**
    * Create a new ConversationManager
@@ -35,6 +36,76 @@ export class ConversationManager {
   constructor(storageManager: StorageManager, eventBus: EventBus) {
     this.storageManager = storageManager;
     this.eventBus = eventBus;
+    
+    // Listen for metadata cleanup events
+    // We don't need to register this with the plugin since ConversationManager
+    // will be created and destroyed with the view
+    this.eventBus.on('conversations:metadata-cleaned', () => {
+      console.log('Received metadata cleanup event, syncing conversations');
+      
+      // Set flag to prevent creation cycles
+      this._isHandlingMetadataCleanup = true;
+      
+      // Synchronize our local conversation list with the storage manager
+      this.syncWithStorageManager()
+        .finally(() => {
+          // Always reset the flag when done
+          this._isHandlingMetadataCleanup = false;
+        });
+    });
+  }
+  
+  /**
+   * Synchronize the local conversation list with the storage manager
+   * Removes conversations that are in our list but no longer in storage
+   */
+  private async syncWithStorageManager(): Promise<void> {
+    try {
+      // Get current conversations from storage
+      const storedConversations = await this.storageManager.getConversations();
+      
+      // Create a set of valid IDs
+      const validIds = new Set<string>();
+      storedConversations.forEach(c => validIds.add(c.id));
+      
+      // Find conversations in our list that are no longer in storage
+      const staleConversations = this.conversations.filter(c => !validIds.has(c.id));
+      
+      if (staleConversations.length > 0) {
+        console.log(`Removing ${staleConversations.length} stale conversations from UI`);
+        
+        // Remove stale conversations from our list
+        this.conversations = this.conversations.filter(c => validIds.has(c.id));
+        
+        // If selected conversation was removed, select another one
+        if (this.selectedConversationId && !validIds.has(this.selectedConversationId)) {
+          if (this.conversations.length > 0) {
+            this.selectedConversationId = this.conversations[0].id;
+            
+            // Emit event for the newly selected conversation
+            this.eventBus.emit(
+              ConversationListEventType.CONVERSATION_SELECTED,
+              this.conversations[0]
+            );
+          } else {
+            this.selectedConversationId = null;
+            
+            // Only create a new conversation if not already handling a metadata cleanup
+            // This prevents cycles of creation during metadata cleanup
+            if (!this._isHandlingMetadataCleanup) {
+              console.log('No conversations left, creating a new one');
+              this.createNewConversation('New Conversation').catch(e => {
+                console.error('Failed to create new conversation after sync:', e);
+              });
+            } else {
+              console.log('Not creating new conversation during metadata cleanup to prevent cycles');
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error syncing with storage manager:', error);
+    }
   }
   
   /**
@@ -108,8 +179,12 @@ export class ConversationManager {
   public async createNewConversation(title?: string): Promise<Conversation> {
     try {
       // Create a new conversation using StorageManager
+      // The StorageManager now ensures the file is fully written and verified
       const newTitle = title || `New Conversation ${this.conversations.length + 1}`;
       const newConversation = await this.storageManager.createConversation(newTitle);
+      
+      // The conversation file is now guaranteed to exist and be valid,
+      // so we can safely use it without additional verification
       
       // Add to local conversations list
       this.conversations.push(newConversation);
@@ -162,7 +237,8 @@ export class ConversationManager {
       const conversation = this.conversations.find(c => c.id === conversationId);
       
       if (!conversation) {
-        console.error(`Conversation with ID ${conversationId} not found`);
+        console.error(`Conversation with ID ${conversationId} not found in ConversationManager`);
+        new Notice(`Cannot rename: conversation not found`);
         return;
       }
       
@@ -170,14 +246,54 @@ export class ConversationManager {
         return;
       }
       
-      // Update conversation title using StorageManager
-      const updatedConversation = await this.storageManager.renameConversation(conversationId, newTitle);
-      
-      // Update local conversation
-      conversation.title = newTitle;
-      
-      // Emit event
-      this.eventBus.emit(ConversationListEventType.CONVERSATION_RENAMED, updatedConversation);
+      try {
+        // Update conversation title using StorageManager
+        const updatedConversation = await this.storageManager.renameConversation(conversationId, newTitle);
+        
+        // Update local conversation
+        conversation.title = newTitle;
+        
+        // Emit event
+        this.eventBus.emit(ConversationListEventType.CONVERSATION_RENAMED, updatedConversation);
+      } catch (error) {
+        // Check if this is a ConversationNotFoundError
+        if (error.name === 'ConversationNotFoundError') {
+          // The file doesn't exist, but we have it in the UI
+          // Remove it from the conversations list
+          console.warn(`Conversation ${conversationId} file not found, removing from UI`);
+          const conversationIndex = this.conversations.findIndex(c => c.id === conversationId);
+          
+          if (conversationIndex !== -1) {
+            this.conversations.splice(conversationIndex, 1);
+            
+            // If it was the selected conversation, select another
+            if (this.selectedConversationId === conversationId) {
+              if (this.conversations.length > 0) {
+                this.selectedConversationId = this.conversations[0].id;
+                this.eventBus.emit(
+                  ConversationListEventType.CONVERSATION_SELECTED,
+                  this.conversations[0]
+                );
+              } else {
+                this.selectedConversationId = null;
+                
+                // Create a new conversation if none left
+                this.createNewConversation('New Conversation').catch(e => {
+                  console.error('Failed to create new conversation after removing invalid one:', e);
+                });
+              }
+            }
+            
+            // Emit deletion event
+            this.eventBus.emit(ConversationListEventType.CONVERSATION_DELETED, conversation);
+          }
+          
+          new Notice(`Removed invalid conversation that no longer exists on disk`);
+        } else {
+          // Other error, let the caller handle it
+          throw error;
+        }
+      }
     } catch (error) {
       console.error(`Failed to rename conversation ${conversationId}:`, error);
       new Notice(`Failed to rename conversation: ${error.message}`);
@@ -196,15 +312,31 @@ export class ConversationManager {
       const conversationIndex = this.conversations.findIndex(c => c.id === conversationId);
       
       if (conversationIndex === -1) {
-        console.error(`Conversation with ID ${conversationId} not found`);
+        console.error(`Conversation with ID ${conversationId} not found in ConversationManager`);
+        // Try to delete from storage anyway in case it exists there
+        try {
+          await this.storageManager.deleteConversation(conversationId);
+        } catch (storageError) {
+          // Ignore errors from storage manager - just log them
+          console.warn(`Storage manager also couldn't find conversation ${conversationId}: ${storageError.message}`);
+        }
         return;
       }
       
       // Get the conversation before removing it
       const deletedConversation = this.conversations[conversationIndex];
       
-      // Delete the conversation using StorageManager
-      await this.storageManager.deleteConversation(conversationId);
+      try {
+        // Delete the conversation using StorageManager
+        await this.storageManager.deleteConversation(conversationId);
+      } catch (deleteError) {
+        // If the file doesn't exist, continue with UI cleanup
+        if (!(deleteError instanceof Error) || 
+            !deleteError.message.includes('not found')) {
+          throw deleteError; // Rethrow if it's not a "not found" error
+        }
+        console.warn(`File for conversation ${conversationId} not found, cleaning up UI only`);
+      }
       
       // Remove from local conversations list
       this.conversations.splice(conversationIndex, 1);

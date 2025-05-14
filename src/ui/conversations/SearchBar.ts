@@ -51,15 +51,15 @@ export class SearchBar {
   private render(): void {
     const searchBarEl = this.containerEl.createDiv({ cls: 'chatsidian-search-bar' });
     
-    // Create search icon
+    // Create search icon (matching Obsidian's style)
     const searchIconEl = searchBarEl.createDiv({ cls: 'chatsidian-search-icon' });
     setIcon(searchIconEl, 'search');
     
-    // Create search input
+    // Create search input with Obsidian styling
     const searchInputEl = searchBarEl.createDiv({ cls: 'chatsidian-search-input' });
     this.searchInput = new TextComponent(searchInputEl);
     this.searchInput
-      .setPlaceholder('Search conversations...')
+      .setPlaceholder('Search chats...')
       .setValue(this.query)
       .onChange(value => {
         this.query = value;
@@ -68,24 +68,45 @@ export class SearchBar {
         // Show/hide clear button based on whether there's a query
         if (value) {
           clearButtonEl.style.display = 'flex';
+          searchBarEl.addClass('chatsidian-search-has-query');
         } else {
           clearButtonEl.style.display = 'none';
+          searchBarEl.removeClass('chatsidian-search-has-query');
         }
       });
+      
+    // Add enter key handler for immediate search
+    this.searchInput.inputEl.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        this.callbacks.onSearch(this.query);
+      }
+      
+      // Escape clears the search
+      if (event.key === 'Escape') {
+        this.clear();
+        event.preventDefault();
+      }
+    });
     
-    // Create clear button
+    // Create clear button with Obsidian styling
     const clearButtonEl = searchBarEl.createDiv({ cls: 'chatsidian-search-clear' });
     setIcon(clearButtonEl, 'x');
+    clearButtonEl.setAttribute('aria-label', 'Clear search');
     clearButtonEl.addEventListener('click', () => {
       this.searchInput.setValue('');
       this.query = '';
       this.callbacks.onClear();
       clearButtonEl.style.display = 'none';
+      searchBarEl.removeClass('chatsidian-search-has-query');
+      // Focus back on the search input
+      this.searchInput.inputEl.focus();
     });
     
     // Initially hide clear button if there's no query
     if (!this.query) {
       clearButtonEl.style.display = 'none';
+    } else {
+      searchBarEl.addClass('chatsidian-search-has-query');
     }
   }
   

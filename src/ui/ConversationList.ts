@@ -18,7 +18,8 @@
  * @file This file defines the ConversationList class for conversation management.
  */
 
-import { Component, setIcon, Notice } from 'obsidian';
+import { App, Component, setIcon, Notice, Menu, MenuItem } from 'obsidian';
+import { FolderCreationModal, FolderRenameModal, ConversationRenameModal } from './conversations/modals';
 import { EventBus } from '../core/EventBus';
 import { StorageManager } from '../core/StorageManager';
 import { Conversation } from '../models/Conversation';
@@ -161,6 +162,44 @@ export class ConversationList extends Component {
             this.render();
           });
         });
+      })
+    );
+    
+    // Listen for conversation events from EventBus
+    this.registerEvent(
+      this.eventBus.on(ConversationListEventType.CONVERSATION_CREATED, () => {
+        this.render();
+      })
+    );
+    
+    this.registerEvent(
+      this.eventBus.on(ConversationListEventType.CONVERSATION_DELETED, () => {
+        this.render();
+      })
+    );
+    
+    this.registerEvent(
+      this.eventBus.on(ConversationListEventType.CONVERSATION_RENAMED, () => {
+        this.render();
+      })
+    );
+    
+    // Listen for folder events from EventBus
+    this.registerEvent(
+      this.eventBus.on(ConversationListEventType.FOLDER_CREATED, () => {
+        this.render();
+      })
+    );
+    
+    this.registerEvent(
+      this.eventBus.on(ConversationListEventType.FOLDER_DELETED, () => {
+        this.render();
+      })
+    );
+    
+    this.registerEvent(
+      this.eventBus.on(ConversationListEventType.FOLDER_RENAMED, () => {
+        this.render();
       })
     );
     
@@ -329,89 +368,252 @@ export class ConversationList extends Component {
    * Render the conversation list
    */
   private render(): void {
-    this.containerEl.empty();
-    this.containerEl.addClass('chatsidian-conversation-list');
-    
-    // Create header with title and new conversation button
-    const headerEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-list-header' });
-    
-    const titleEl = headerEl.createDiv({ cls: 'chatsidian-conversation-list-title' });
-    titleEl.setText('Conversations');
-    
-    const newButtonEl = headerEl.createDiv({ cls: 'chatsidian-conversation-new-button' });
-    setIcon(newButtonEl, 'plus');
-    newButtonEl.setAttribute('aria-label', 'New Conversation');
-    newButtonEl.addEventListener('click', () => this.createNewConversation());
-    
-    // Create search bar
-    const searchBarEl = this.containerEl.createDiv({ cls: 'chatsidian-search-container' });
-    const searchBarProps: SearchBarProps = {
-      initialQuery: this.searchQuery,
-      onSearch: (query) => {
-        this.searchQuery = query;
-        this.render();
-      },
-      onClear: () => {
-        this.searchQuery = '';
-        this.render();
-      }
-    };
-    this.searchBar = new SearchBar(searchBarEl, searchBarProps);
-    
-    // Create filter controls
-    const filterControlsEl = this.containerEl.createDiv({ cls: 'chatsidian-filter-container' });
-    const filterControlsProps: FilterControlsProps = {
-      initialSortOption: this.sortOption,
-      initialFilterOption: this.filterOption,
-      initialSelectedTag: this.tagManager.getSelectedTag(),
-      availableTags: this.tagManager.getAvailableTags(),
-      onSortChange: (option) => {
-        this.sortOption = option;
-        this.render();
-      },
-      onFilterChange: (option) => {
-        this.filterOption = option;
-        this.render();
-      },
-      onTagSelect: (tag) => {
-        this.tagManager.setSelectedTag(tag);
-        this.render();
-      }
-    };
-    this.filterControls = new FilterControls(filterControlsEl, filterControlsProps);
-    
-    // Create conversation list container
-    const listContainerEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-list-container' });
-    
-    // Get conversations and apply filters
-    const conversations = this.conversationManager.getConversations();
-    const filteredConversations = ConversationFilter.filterAndSort(
-      conversations,
-      this.searchQuery,
-      this.tagManager.getSelectedTag(),
-      this.filterOption,
-      this.sortOption
-    );
-    
-    // Render conversations
-    if (filteredConversations.length === 0) {
-      const emptyEl = listContainerEl.createDiv({ cls: 'chatsidian-conversation-list-empty' });
-      emptyEl.setText('No conversations match your filters');
-    } else {
-      // Get root folders (no parent)
-      const rootFolders = this.folderManager.getChildFolders(null);
+    // Ensure that rendering is called with fresh data
+    requestAnimationFrame(() => {
+      console.log('Rendering conversation list');
+      this.containerEl.empty();
+      this.containerEl.addClass('chatsidian-conversation-list');
       
-      // Render root folders
-      for (const folder of rootFolders) {
-        this.renderFolder(listContainerEl, folder);
+      // Create header with Obsidian-like styling
+      const headerEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-list-header' });
+      
+      // Left side of header with title
+      const headerLeftEl = headerEl.createDiv({ cls: 'chatsidian-header-left' });
+      const titleEl = headerLeftEl.createDiv({ cls: 'chatsidian-conversation-list-title' });
+      titleEl.setText('Conversations');
+      
+      // Right side of header with action buttons
+      const headerRightEl = headerEl.createDiv({ cls: 'chatsidian-header-actions' });
+      
+      // Create new folder button
+      const newFolderEl = headerRightEl.createDiv({ 
+        cls: 'chatsidian-icon-button chatsidian-new-folder-button' 
+      });
+      setIcon(newFolderEl, 'folder-plus');
+      newFolderEl.setAttribute('aria-label', 'New Folder');
+      newFolderEl.addEventListener('click', () => this.createFolder());
+      
+      // Create new conversation button
+      const newButtonEl = headerRightEl.createDiv({ 
+        cls: 'chatsidian-icon-button chatsidian-new-conversation-button' 
+      });
+      setIcon(newButtonEl, 'message-square-plus');
+      newButtonEl.setAttribute('aria-label', 'New Conversation');
+      newButtonEl.addEventListener('click', () => this.createNewConversation());
+      
+      // Create settings/filter button
+      const settingsButtonEl = headerRightEl.createDiv({ 
+        cls: 'chatsidian-icon-button chatsidian-filter-button' 
+      });
+      setIcon(settingsButtonEl, 'settings');
+      settingsButtonEl.setAttribute('aria-label', 'Filters & Sorting');
+      
+      // Display active filter if not default
+      if (this.filterOption !== ConversationFilterOption.ALL || 
+          this.tagManager.getSelectedTag() !== null) {
+        settingsButtonEl.addClass('chatsidian-filter-active');
       }
       
-      // Render conversations that are not in folders
-      const unfiledConversations = filteredConversations.filter(c => !c.folderId);
-      for (const conversation of unfiledConversations) {
-        this.renderConversation(listContainerEl, conversation);
+      // Show filter dropdown on click
+      settingsButtonEl.addEventListener('click', (event) => {
+        const menu = new Menu();
+        
+        // Sort section
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Sort by Last Modified (Newest)')
+            .setIcon(this.sortOption === ConversationSortOption.MODIFIED_DESC ? 'checkmark' : '')
+            .onClick(() => {
+              this.setSortOption(ConversationSortOption.MODIFIED_DESC);
+            });
+        });
+        
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Sort by Last Modified (Oldest)')
+            .setIcon(this.sortOption === ConversationSortOption.MODIFIED_ASC ? 'checkmark' : '')
+            .onClick(() => {
+              this.setSortOption(ConversationSortOption.MODIFIED_ASC);
+            });
+        });
+        
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Sort by Title')
+            .setIcon(this.sortOption === ConversationSortOption.TITLE_ASC ? 'checkmark' : '')
+            .onClick(() => {
+              this.setSortOption(ConversationSortOption.TITLE_ASC);
+            });
+        });
+        
+        menu.addSeparator();
+        
+        // Filter section
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Show All Conversations')
+            .setIcon(this.filterOption === ConversationFilterOption.ALL ? 'checkmark' : '')
+            .onClick(() => {
+              this.setFilterOption(ConversationFilterOption.ALL);
+            });
+        });
+        
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Show Starred')
+            .setIcon(this.filterOption === ConversationFilterOption.STARRED ? 'checkmark' : '')
+            .onClick(() => {
+              this.setFilterOption(ConversationFilterOption.STARRED);
+            });
+        });
+        
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Show Untagged')
+            .setIcon(this.filterOption === ConversationFilterOption.UNTAGGED ? 'checkmark' : '')
+            .onClick(() => {
+              this.setFilterOption(ConversationFilterOption.UNTAGGED);
+            });
+        });
+        
+        menu.addSeparator();
+        
+        // Tags section
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('Filter by Tag');
+        });
+        
+        // All tags option
+        menu.addItem((item: MenuItem) => {
+          item.setTitle('  All Tags')
+            .setIcon(this.tagManager.getSelectedTag() === null ? 'checkmark' : '')
+            .onClick(() => {
+              this.tagManager.setSelectedTag(null);
+              this.render();
+            });
+        });
+        
+        // Individual tags
+        const tags = this.tagManager.getAvailableTags();
+        if (tags.size > 0) {
+          for (const tag of tags) {
+            menu.addItem((item: MenuItem) => {
+              item.setTitle(`  #${tag}`)
+                .setIcon(this.tagManager.getSelectedTag() === tag ? 'checkmark' : '')
+                .onClick(() => {
+                  this.tagManager.setSelectedTag(tag);
+                  this.render();
+                });
+            });
+          }
+        }
+        
+        menu.showAtMouseEvent(event);
+      });
+      
+      // Create Obsidian-style search
+      const searchContainerEl = this.containerEl.createDiv({ cls: 'chatsidian-search-container' });
+      const searchBarProps: SearchBarProps = {
+        initialQuery: this.searchQuery,
+        onSearch: (query) => {
+          this.searchQuery = query;
+          this.render();
+        },
+        onClear: () => {
+          this.searchQuery = '';
+          this.render();
+        }
+      };
+      this.searchBar = new SearchBar(searchContainerEl, searchBarProps);
+      
+      // Create hidden filter controls (used through the dropdown menu now)
+      const filterControlsEl = this.containerEl.createDiv({ 
+        cls: 'chatsidian-filter-container hidden' 
+      });
+      const filterControlsProps: FilterControlsProps = {
+        initialSortOption: this.sortOption,
+        initialFilterOption: this.filterOption,
+        initialSelectedTag: this.tagManager.getSelectedTag(),
+        availableTags: this.tagManager.getAvailableTags(),
+        onSortChange: (option) => {
+          this.sortOption = option;
+          this.render();
+        },
+        onFilterChange: (option) => {
+          this.filterOption = option;
+          this.render();
+        },
+        onTagSelect: (tag) => {
+          this.tagManager.setSelectedTag(tag);
+          this.render();
+        }
+      };
+      this.filterControls = new FilterControls(filterControlsEl, filterControlsProps);
+      
+      // Ensure consistent data state before rendering
+      this.tagManager.updateAvailableTags(this.conversationManager.getConversations());
+      
+      // Create conversation list container with context menu for empty space
+      const listContainerEl = this.containerEl.createDiv({ cls: 'chatsidian-conversation-list-container' });
+      
+      // Add right-click context menu to empty space for folder creation
+      listContainerEl.addEventListener('contextmenu', (event) => {
+        // Only show context menu if clicking on the container itself, not a child element
+        if (event.target === listContainerEl) {
+          const menu = new Menu();
+          
+          // Add options for creating new items
+          menu.addItem((item: MenuItem) => {
+            item.setTitle('New Chat')
+              .setIcon('message-square-plus')
+              .onClick(() => this.createNewConversation());
+          });
+          
+          menu.addItem((item: MenuItem) => {
+            item.setTitle('New Folder')
+              .setIcon('folder-plus')
+              .onClick(() => this.createFolder());
+          });
+          
+          menu.showAtMouseEvent(event);
+          event.preventDefault();
+        }
+      });
+      
+      // Get conversations and apply filters - ensure we get a fresh copy
+      const conversations = this.conversationManager.getConversations();
+      const filteredConversations = ConversationFilter.filterAndSort(
+        conversations,
+        this.searchQuery,
+        this.tagManager.getSelectedTag(),
+        this.filterOption,
+        this.sortOption
+      );
+      
+      // Render conversations
+      if (filteredConversations.length === 0 && this.searchQuery !== '') {
+        const emptyEl = listContainerEl.createDiv({ cls: 'chatsidian-conversation-list-empty' });
+        emptyEl.setText('No conversations match your search');
+      } else if (filteredConversations.length === 0) {
+        const emptyEl = listContainerEl.createDiv({ cls: 'chatsidian-conversation-list-empty' });
+        emptyEl.setText('No conversations match your filters');
+        
+        // Create new conversation button when list is empty
+        const newChatButtonEl = listContainerEl.createDiv({ 
+          cls: 'chatsidian-empty-state-button'
+        });
+        newChatButtonEl.setText('Create a new chat');
+        newChatButtonEl.addEventListener('click', () => this.createNewConversation());
+      } else {
+        // Get root folders (no parent)
+        const rootFolders = this.folderManager.getChildFolders(null);
+        
+        // Render root folders
+        for (const folder of rootFolders) {
+          this.renderFolder(listContainerEl, folder);
+        }
+        
+        // Render conversations that are not in folders
+        const unfiledConversations = filteredConversations.filter(c => !c.folderId);
+        for (const conversation of unfiledConversations) {
+          this.renderConversation(listContainerEl, conversation);
+        }
       }
-    }
+    });
   }
   
   /**
@@ -436,12 +638,15 @@ export class ConversationList extends Component {
       this.sortOption
     );
     
+    // Force folders to be expanded during initial rendering to show their content
+    const isExpanded = true; // Always show expanded for now to debug folder visibility
+    
     // Only render folder if it has matching conversations or child folders
     if (filteredConversations.length > 0 || childFolders.length > 0) {
       // Create folder item
       new FolderItem(containerEl, {
         folder,
-        isExpanded: this.folderManager.isFolderExpanded(folder.id),
+        isExpanded: isExpanded, // Force expansion to debug
         onToggleExpand: (id) => this.folderManager.toggleFolderExpansion(id),
         onRename: (id) => this.renameFolder(id),
         onDelete: (id) => this.deleteFolder(id),
@@ -517,26 +722,42 @@ export class ConversationList extends Component {
    * @param conversationId - The ID of the conversation to rename
    */
   public async renameConversation(conversationId: string): Promise<void> {
-    // Find the conversation
-    const conversation = this.conversationManager.getConversations().find(c => c.id === conversationId);
-    
-    if (!conversation) {
-      console.error(`Conversation with ID ${conversationId} not found`);
-      return;
+    try {
+      // Find the conversation
+      const conversation = this.conversationManager.getConversations().find(c => c.id === conversationId);
+      
+      if (!conversation) {
+        console.error(`Conversation with ID ${conversationId} not found`);
+        new Notice(`Conversation not found`);
+        return;
+      }
+      
+      // Show rename modal instead of using prompt()
+      const renameModal = new ConversationRenameModal(
+        this.app,
+        conversation.title || "Untitled Conversation",
+        async (newTitle) => {
+          try {
+            if (newTitle && newTitle !== conversation.title) {
+              // Rename the conversation
+              await this.conversationManager.renameConversation(conversationId, newTitle);
+              
+              // Re-render the conversation list
+              this.render();
+            }
+          } catch (error) {
+            console.error('Failed to rename conversation in modal callback:', error);
+            // Re-throw to let the modal handle the error
+            throw error;
+          }
+        }
+      );
+      
+      renameModal.open();
+    } catch (error) {
+      console.error('Error preparing conversation rename:', error);
+      new Notice('Failed to rename conversation: ' + (error.message || ''));
     }
-    
-    // Prompt for new title
-    const newTitle = prompt('Enter new conversation title:', conversation.title);
-    
-    if (!newTitle || newTitle === conversation.title) {
-      return;
-    }
-    
-    // Rename the conversation
-    await this.conversationManager.renameConversation(conversationId, newTitle);
-    
-    // Re-render the conversation list
-    this.render();
   }
   
   /**
@@ -560,11 +781,25 @@ export class ConversationList extends Component {
       return;
     }
     
-    // Delete the conversation
-    await this.conversationManager.deleteConversation(conversationId);
-    
-    // Re-render the conversation list
-    this.render();
+    try {
+      // Delete the conversation
+      await this.conversationManager.deleteConversation(conversationId);
+      
+      // Force refresh tags if needed
+      this.tagManager.updateAvailableTags(this.conversationManager.getConversations());
+      if (this.filterControls) {
+        this.filterControls.updateAvailableTags(this.tagManager.getAvailableTags());
+      }
+      
+      // Explicitly re-render the conversation list with a small delay
+      // to ensure all state is updated
+      setTimeout(() => {
+        this.render();
+      }, 50);
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      new Notice(`Failed to delete conversation: ${error.message || ''}`);
+    }
   }
   
   /**
@@ -576,25 +811,41 @@ export class ConversationList extends Component {
    */
   public async createFolder(name?: string, parentId?: string): Promise<any> {
     try {
-      // Prompt for folder name if not provided
-      const folderName = name || prompt('Enter folder name:', 'New Folder');
-      
-      if (!folderName) {
-        return;
+      if (name) {
+        // If name is provided, create folder directly
+        const newFolder = await this.folderManager.createFolder(name, parentId);
+        this.render();
+        return newFolder;
+      } else {
+        // Show a folder creation modal dialog instead of using prompt()
+        const folderModal = new FolderCreationModal(this.app, async (folderName) => {
+          try {
+            if (folderName) {
+              const newFolder = await this.folderManager.createFolder(folderName, parentId);
+              this.render();
+              return newFolder;
+            }
+          } catch (error) {
+            console.error('Failed to create folder in modal callback:', error);
+            // Re-throw to let the modal handle the error
+            throw error;
+          }
+        });
+        folderModal.open();
       }
-      
-      // Create a new folder
-      const newFolder = await this.folderManager.createFolder(folderName, parentId);
-      
-      // Re-render the conversation list
-      this.render();
-      
-      return newFolder;
     } catch (error) {
       console.error('Failed to create new folder:', error);
-      new Notice('Failed to create new folder');
+      new Notice('Failed to create new folder: ' + (error.message || ''));
       throw error;
     }
+  }
+  
+  /** 
+   * Access to the Obsidian App instance
+   */
+  private get app(): App {
+    // Since this plugin is running in Obsidian, the global 'app' object is available
+    return (window as any).app;
   }
   
   /**
@@ -603,26 +854,42 @@ export class ConversationList extends Component {
    * @param folderId - The ID of the folder to rename
    */
   public async renameFolder(folderId: string): Promise<void> {
-    // Find the folder
-    const folder = this.folderManager.getFolders().find(f => f.id === folderId);
-    
-    if (!folder) {
-      console.error(`Folder with ID ${folderId} not found`);
-      return;
+    try {
+      // Find the folder
+      const folder = this.folderManager.getFolders().find(f => f.id === folderId);
+      
+      if (!folder) {
+        console.error(`Folder with ID ${folderId} not found`);
+        new Notice(`Folder not found`);
+        return;
+      }
+      
+      // Show rename modal instead of using prompt()
+      const renameModal = new FolderRenameModal(
+        this.app,
+        folder.name,
+        async (newName) => {
+          try {
+            if (newName && newName !== folder.name) {
+              // Rename the folder
+              await this.folderManager.renameFolder(folderId, newName);
+              
+              // Re-render the conversation list
+              this.render();
+            }
+          } catch (error) {
+            console.error('Failed to rename folder in modal callback:', error);
+            // Re-throw to let the modal handle the error
+            throw error;
+          }
+        }
+      );
+      
+      renameModal.open();
+    } catch (error) {
+      console.error('Error preparing folder rename:', error);
+      new Notice('Failed to rename folder: ' + (error.message || ''));
     }
-    
-    // Prompt for new name
-    const newName = prompt('Enter new folder name:', folder.name);
-    
-    if (!newName || newName === folder.name) {
-      return;
-    }
-    
-    // Rename the folder
-    await this.folderManager.renameFolder(folderId, newName);
-    
-    // Re-render the conversation list
-    this.render();
   }
   
   /**

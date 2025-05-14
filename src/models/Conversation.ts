@@ -8,6 +8,38 @@
 import { TFile } from 'obsidian';
 
 /**
+ * Plugin data model for storing conversation and folder metadata
+ * This is the central storage model used with Obsidian's loadData/saveData
+ */
+export interface ChatsidianData {
+  // Folders structure
+  folders: ConversationFolder[];
+  
+  // Index of conversation metadata
+  conversationIndex: {
+    [id: string]: ConversationMetadata;
+  };
+  
+  // Last operation timestamp for conflict resolution
+  lastUpdated: number;
+}
+
+/**
+ * Conversation metadata stored in the plugin data index
+ * Contains lightweight information about a conversation without the full messages
+ */
+export interface ConversationMetadata {
+  id: string;
+  title: string;
+  folderId: string | null;
+  isStarred: boolean;
+  tags: string[];
+  createdAt: number;
+  modifiedAt: number;
+  messageCount: number;
+}
+
+/**
  * Represents a conversation between a user and an AI assistant.
  * This is the main container for a chat session.
  */
@@ -222,5 +254,56 @@ export class ConversationUtils {
    */
   private static generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+  }
+  
+  /**
+   * Creates default plugin data structure
+   * @returns A new ChatsidianData object with empty collections
+   */
+  static createDefaultPluginData(): ChatsidianData {
+    // Explicitly create with correct types to avoid TypeScript errors
+    const data: ChatsidianData = {
+      folders: [] as ConversationFolder[], // Explicitly typed array
+      conversationIndex: {} as {[id: string]: ConversationMetadata}, // Explicitly typed object
+      lastUpdated: Date.now()
+    };
+    return data;
+  }
+  
+  /**
+   * Extracts metadata from a conversation for the index
+   * @param conversation Full conversation object
+   * @returns ConversationMetadata for the index
+   */
+  static extractMetadata(conversation: Conversation): ConversationMetadata {
+    return {
+      id: conversation.id,
+      title: conversation.title,
+      folderId: conversation.folderId || null,
+      isStarred: conversation.isStarred || false,
+      tags: conversation.tags || [],
+      createdAt: conversation.createdAt,
+      modifiedAt: conversation.modifiedAt,
+      messageCount: conversation.messages.length
+    };
+  }
+  
+  /**
+   * Updates the metadata for a conversation in the plugin data
+   * @param pluginData The current plugin data
+   * @param conversation The conversation to update metadata for
+   * @returns Updated ChatsidianData object
+   */
+  static updateConversationIndex(pluginData: ChatsidianData, conversation: Conversation): ChatsidianData {
+    const metadata = this.extractMetadata(conversation);
+    
+    return {
+      ...pluginData,
+      conversationIndex: {
+        ...pluginData.conversationIndex,
+        [conversation.id]: metadata
+      },
+      lastUpdated: Date.now()
+    };
   }
 }

@@ -92,11 +92,19 @@ export class FolderManager {
       // Add to local folders list
       this.folders.push(newFolder);
       
-      // Expand the folder
+      // Expand the folder and any parent folders
       this.expandedFolderIds.add(newFolder.id);
+      if (parentId) {
+        this.expandedFolderIds.add(parentId);
+      }
       
-      // Emit event
-      this.eventBus.emit(ConversationListEventType.FOLDER_CREATED, newFolder);
+      // Emit event with additional information
+      this.eventBus.emit(ConversationListEventType.FOLDER_CREATED, {
+        folder: newFolder,
+        parentId: parentId
+      });
+      
+      console.log(`Created new folder: ${newFolder.name} (${newFolder.id})`);
       
       return newFolder;
     } catch (error) {
