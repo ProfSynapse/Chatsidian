@@ -44,8 +44,10 @@ export class FolderManager {
    */
   public async loadFolders(): Promise<ConversationFolder[]> {
     try {
+      console.log('FolderManager.loadFolders: Loading folders from storage');
       // Load folders from storage
       const storedFolders = await this.storageManager.getFolders();
+      console.log('FolderManager.loadFolders: Storage returned folders:', storedFolders.map(f => ({id: f.id, name: f.name})));
       this.folders = storedFolders;
       return this.folders;
     } catch (error) {
@@ -80,31 +82,46 @@ export class FolderManager {
    * @param parentId - Optional parent folder ID
    * @returns Promise that resolves with the new folder
    */
-  public async createFolder(name?: string, parentId?: string): Promise<ConversationFolder> {
+  public async createFolder(name?: string, parentId?: string | null): Promise<ConversationFolder> {
     try {
+      // Make sure parentId is null if undefined
+      const actualParentId = parentId === undefined ? null : parentId;
+      
+      console.log(`FolderManager: Creating folder with name "${name || 'New Folder'}" and parentId:`, 
+                  actualParentId === null ? "null" : `"${actualParentId}"`);
+      
       // Create a new folder using StorageManager
       const folderName = name || 'New Folder';
       const newFolder = await this.storageManager.createFolder({
         name: folderName,
-        parentId: parentId
+        parentId: actualParentId // Pass null explicitly if no parent
       });
+      
+      console.log(`FolderManager: Folder created in StorageManager:`, newFolder);
+      console.log(`FolderManager: New folder parentId check:`, 
+                  newFolder.parentId === null ? "null" : 
+                  newFolder.parentId === undefined ? "undefined" : 
+                  `"${newFolder.parentId}" (${typeof newFolder.parentId})`);
       
       // Add to local folders list
       this.folders.push(newFolder);
+      console.log(`FolderManager: Added folder to local folders list, current folders:`, this.folders.map(f => ({id: f.id, name: f.name})));
       
       // Expand the folder and any parent folders
       this.expandedFolderIds.add(newFolder.id);
-      if (parentId) {
-        this.expandedFolderIds.add(parentId);
+      if (actualParentId) {
+        this.expandedFolderIds.add(actualParentId);
       }
+      console.log(`FolderManager: Updated expandedFolderIds:`, Array.from(this.expandedFolderIds));
       
       // Emit event with additional information
+      console.log(`FolderManager: Emitting FOLDER_CREATED event`);
       this.eventBus.emit(ConversationListEventType.FOLDER_CREATED, {
         folder: newFolder,
-        parentId: parentId
+        parentId: actualParentId
       });
       
-      console.log(`Created new folder: ${newFolder.name} (${newFolder.id})`);
+      console.log(`FolderManager: Created new folder: ${newFolder.name} (${newFolder.id})`);
       
       return newFolder;
     } catch (error) {
@@ -239,13 +256,88 @@ export class FolderManager {
   }
   
   /**
+   * Helper method to normalize parentId values for comparison
+   * @param value - The value to normalize
+   * @returns Normalized value (null or a string, never undefined)
+   */
+  private normalizeParentId(value: string | null | undefined): string | null {
+    // Log the input value and its type
+    console.log(`FolderManager.normalizeParentId: Input value: ${value === undefined ? 'undefined' : value === null ? 'null' : `"${value}"`}, Type: ${typeof value}`);
+    
+    if (value === undefined || value === "undefined" || value === "") {
+      console.log(`FolderManager.normalizeParentId: Normalizing ${value === undefined ? 'undefined' : `"${value}"`} to null`);
+      return null;
+    }
+    
+    console.log(`FolderManager.normalizeParentId: Keeping value as: ${value === null ? 'null' : `"${value}"`}`);
+    return value;
+  }
+  
+  /**
    * Get child folders for a parent folder
    * 
    * @param parentId - Parent folder ID, or null for root folders
    * @returns Child folders
    */
   public getChildFolders(parentId: string | null): ConversationFolder[] {
-    return this.folders.filter(folder => folder.parentId === parentId);
+    console.log("FolderManager.getChildFolders: START ===== DETAILED DEBUG =====");
+    console.log(`FolderManager.getChildFolders: Raw input parentId:`, parentId);
+    console.log(`FolderManager.getChildFolders: parentId type:`, typeof parentId);
+    
+    const normalizedParentId = this.normalizeParentId(parentId);
+    console.log(`FolderManager.getChildFolders: Normalized parentId:`, normalizedParentId);
+    
+    // Print detailed folder information
+    console.log("FolderManager.getChildFolders: All folders (with full JSON details):");
+    this.folders.forEach((folder, index) => {
+      console.log(`Folder ${index}:`, JSON.stringify(folder, null, 2));
+      console.log(`Folder ${index} parentId type:`, typeof folder.parentId);
+    });
+    
+    // Debug individual folder parentId values and types
+    this.folders.forEach(folder => {
+      const normalizedFolderParentId = this.normalizeParentId(folder.parentId);
+      console.log(`FolderManager.getChildFolders: Folder "${folder.name}" (${folder.id}) has raw parentId "${folder.parentId}" (${typeof folder.parentId}) and normalized parentId "${normalizedFolderParentId}" (${typeof normalizedFolderParentId})`);
+    });
+    
+    // Let's try a more manual approach for filtering to better debug
+    const childFolders: ConversationFolder[] = [];
+    
+    for (const folder of this.folders) {
+      const folderParentId = folder.parentId;
+      const normalizedFolderParentId = this.normalizeParentId(folderParentId);
+      
+      console.log(`FolderManager.getChildFolders: Checking folder "${folder.name}":`);
+      console.log(`  - Folder parentId (raw): ${folderParentId === undefined ? 'undefined' : folderParentId === null ? 'null' : `"${folderParentId}"`}`);
+      console.log(`  - Folder parentId (normalized): ${normalizedFolderParentId === null ? 'null' : `"${normalizedFolderParentId}"`}`);
+      console.log(`  - Filter parentId (normalized): ${normalizedParentId === null ? 'null' : `"${normalizedParentId}"`}`);
+      
+      // Try different comparison approaches - logging each one 
+      const strictEqualityRaw = folderParentId === parentId;
+      const strictEqualityNormalized = normalizedFolderParentId === normalizedParentId;
+      const nullAndUndefinedCheck = 
+        (normalizedParentId === null && (normalizedFolderParentId === null || normalizedFolderParentId === undefined));
+      
+      console.log(`  - Strict equality (raw): ${strictEqualityRaw}`);
+      console.log(`  - Strict equality (normalized): ${strictEqualityNormalized}`);
+      console.log(`  - Null/undefined check: ${nullAndUndefinedCheck}`);
+      
+      // Let's define a match as either strict equality of normalized values OR both are effectively null/undefined
+      const isMatch = strictEqualityNormalized || 
+                     (normalizedParentId === null && (normalizedFolderParentId === null || normalizedFolderParentId === undefined));
+      
+      console.log(`  - Final match result: ${isMatch}`);
+      
+      if (isMatch) {
+        childFolders.push(folder);
+      }
+    }
+    
+    console.log(`FolderManager.getChildFolders: Found ${childFolders.length} child folders:`, 
+                 childFolders.map(f => ({id: f.id, name: f.name})));
+    console.log("FolderManager.getChildFolders: END ===== DETAILED DEBUG =====");
+    
+    return childFolders;
   }
   
   /**

@@ -123,21 +123,31 @@ export class ConversationList extends Component {
    * Initialize the conversation list
    */
   private async initialize(): Promise<void> {
+    console.log('ConversationList.initialize: Starting initialization');
+    
     // Load conversations and folders
     await this.conversationManager.loadConversations();
-    await this.folderManager.loadFolders();
+    console.log('ConversationList.initialize: Conversations loaded');
+    
+    const folders = await this.folderManager.loadFolders();
+    console.log('ConversationList.initialize: Folders loaded:', folders.map(f => ({id: f.id, name: f.name})));
     
     // Update available tags
     this.tagManager.updateAvailableTags(this.conversationManager.getConversations());
+    console.log('ConversationList.initialize: Tags updated');
     
     // Register event handlers
     this.registerEventHandlers();
+    console.log('ConversationList.initialize: Event handlers registered');
     
     // Register keyboard shortcuts
     this.registerKeyboardShortcuts();
+    console.log('ConversationList.initialize: Keyboard shortcuts registered');
     
     // Render the conversation list
+    console.log('ConversationList.initialize: About to render conversation list');
     this.render();
+    console.log('ConversationList.initialize: Initialization complete');
   }
   
   /**
@@ -186,7 +196,9 @@ export class ConversationList extends Component {
     
     // Listen for folder events from EventBus
     this.registerEvent(
-      this.eventBus.on(ConversationListEventType.FOLDER_CREATED, () => {
+      this.eventBus.on(ConversationListEventType.FOLDER_CREATED, (data) => {
+        console.log('ConversationList: Received FOLDER_CREATED event:', data);
+        console.log('ConversationList: Current folders before render:', this.folderManager.getFolders().map(f => ({id: f.id, name: f.name})));
         this.render();
       })
     );
@@ -599,12 +611,29 @@ export class ConversationList extends Component {
         newChatButtonEl.setText('Create a new chat');
         newChatButtonEl.addEventListener('click', () => this.createNewConversation());
       } else {
-        // Get root folders (no parent)
-        const rootFolders = this.folderManager.getChildFolders(null);
+        // FINAL DEBUG APPROACH: Just render ALL folders at the root level to verify they can render
+        console.log('ConversationList.render: All available folders from FolderManager:', this.folderManager.getFolders().map(f => ({id: f.id, name: f.name, parentId: f.parentId})));
         
-        // Render root folders
-        for (const folder of rootFolders) {
-          this.renderFolder(listContainerEl, folder);
+        // Get all folders
+        const allFolders = this.folderManager.getFolders();
+        
+        console.log(`ConversationList.render: DIRECT DEBUG - Rendering ALL ${allFolders.length} folders at root level`);
+        
+        if (allFolders.length === 0) {
+          console.error("ConversationList.render: No folders found in FolderManager.getFolders()!");
+        } else {
+          // Just render all folders directly at the root level
+          for (const folder of allFolders) {
+            console.log(`ConversationList.render: Direct rendering of folder ${folder.name} (${folder.id})`);
+            
+            try {
+              // Render folder directly without any filtering
+              this.renderFolder(listContainerEl, folder);
+              console.log(`ConversationList.render: Successfully rendered folder ${folder.name}`);
+            } catch (error) {
+              console.error(`ConversationList.render: ERROR rendering folder ${folder.name}:`, error);
+            }
+          }
         }
         
         // Render conversations that are not in folders
@@ -623,11 +652,17 @@ export class ConversationList extends Component {
    * @param folder - The folder to render
    */
   private renderFolder(containerEl: HTMLElement, folder: any): void {
+    console.log(`ConversationList.renderFolder: Rendering folder "${folder.name}" (${folder.id}), raw folder object:`, JSON.stringify(folder, null, 2));
+    
     // Get child folders
+    console.log(`ConversationList.renderFolder: Getting child folders for "${folder.name}" (${folder.id})`);
     const childFolders = this.folderManager.getChildFolders(folder.id);
+    console.log(`ConversationList.renderFolder: Found ${childFolders.length} child folders for "${folder.name}"`);
     
     // Get conversations in this folder
+    console.log(`ConversationList.renderFolder: Getting conversations for folder "${folder.name}" (${folder.id})`);
     const conversations = this.conversationManager.getConversations().filter(c => c.folderId === folder.id);
+    console.log(`ConversationList.renderFolder: Found ${conversations.length} conversations in folder "${folder.name}"`);
     
     // Apply filters to conversations
     const filteredConversations = ConversationFilter.filterAndSort(
@@ -637,25 +672,32 @@ export class ConversationList extends Component {
       this.filterOption,
       this.sortOption
     );
+    console.log(`ConversationList.renderFolder: After filtering, found ${filteredConversations.length} conversations in folder "${folder.name}"`);
     
     // Force folders to be expanded during initial rendering to show their content
     const isExpanded = true; // Always show expanded for now to debug folder visibility
     
-    // Only render folder if it has matching conversations or child folders
-    if (filteredConversations.length > 0 || childFolders.length > 0) {
-      // Create folder item
-      new FolderItem(containerEl, {
-        folder,
-        isExpanded: isExpanded, // Force expansion to debug
-        onToggleExpand: (id) => this.folderManager.toggleFolderExpansion(id),
-        onRename: (id) => this.renameFolder(id),
-        onDelete: (id) => this.deleteFolder(id),
-        childFolders,
-        conversations: filteredConversations,
-        selectedConversationId: this.conversationManager.getSelectedConversationId(),
-        onSelectConversation: (id) => this.selectConversation(id)
-      });
-    }
+    // IMPORTANT: For debugging, we're going to render all folders regardless of content
+    // The original code had a condition that would skip rendering empty folders
+    // if (filteredConversations.length === 0 && childFolders.length === 0) { return; }
+    // But we've removed that now to force all folders to render
+    
+    // Always render folder regardless of content for debugging
+    console.log(`ConversationList.renderFolder: Creating FolderItem for "${folder.name}" (${folder.id})`);
+    
+    // Create folder item - ALWAYS RENDER IT REGARDLESS OF CONTENT
+    new FolderItem(containerEl, {
+      folder,
+      isExpanded: isExpanded, // Force expansion to debug
+      onToggleExpand: (id) => this.folderManager.toggleFolderExpansion(id),
+      onRename: (id) => this.renameFolder(id),
+      onDelete: (id) => this.deleteFolder(id),
+      childFolders,
+      conversations: filteredConversations,
+      selectedConversationId: this.conversationManager.getSelectedConversationId(),
+      onSelectConversation: (id) => this.selectConversation(id)
+    });
+    console.log(`ConversationList.renderFolder: COMPLETED rendering folder "${folder.name}" (${folder.id})`);
   }
   
   /**
@@ -811,17 +853,25 @@ export class ConversationList extends Component {
    */
   public async createFolder(name?: string, parentId?: string): Promise<any> {
     try {
+      console.log(`ConversationList.createFolder: Creating folder with name "${name || 'via modal'}" and parentId: ${parentId === undefined ? 'undefined' : parentId === null ? 'null' : `"${parentId}"`}`);
+      
+      // Normalize parentId
+      const actualParentId = parentId === undefined || parentId === "undefined" ? null : parentId;
+      
       if (name) {
         // If name is provided, create folder directly
-        const newFolder = await this.folderManager.createFolder(name, parentId);
+        console.log(`ConversationList.createFolder: Creating folder directly with name "${name}" and normalized parentId: ${actualParentId === null ? 'null' : `"${actualParentId}"`}`);
+        const newFolder = await this.folderManager.createFolder(name, actualParentId);
         this.render();
         return newFolder;
       } else {
         // Show a folder creation modal dialog instead of using prompt()
+        console.log(`ConversationList.createFolder: Opening modal to create folder with normalized parentId: ${actualParentId === null ? 'null' : `"${actualParentId}"`}`);
         const folderModal = new FolderCreationModal(this.app, async (folderName) => {
           try {
             if (folderName) {
-              const newFolder = await this.folderManager.createFolder(folderName, parentId);
+              console.log(`ConversationList.createFolder: Creating folder from modal with name "${folderName}" and normalized parentId: ${actualParentId === null ? 'null' : `"${actualParentId}"`}`);
+              const newFolder = await this.folderManager.createFolder(folderName, actualParentId);
               this.render();
               return newFolder;
             }

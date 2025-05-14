@@ -235,14 +235,20 @@ export class ConversationUtils {
    * @param parentId Optional parent folder ID for nested folders.
    * @returns A new ConversationFolder object.
    */
-  static createFolder(name: string, parentId?: string): ConversationFolder {
+  static createFolder(name: string, parentId?: string | null): ConversationFolder {
     const id = this.generateId();
     const now = Date.now();
+    
+    // Make sure we handle both undefined and string "undefined" correctly
+    const actualParentId = parentId === undefined || parentId === "undefined" ? null : parentId;
+    
+    console.log(`ConversationUtils.createFolder: Creating folder "${name}" with parentId:`, 
+                actualParentId === null ? "null" : `"${actualParentId}"`);
     
     return {
       id,
       name,
-      parentId: parentId || null,
+      parentId: actualParentId,
       createdAt: now,
       modifiedAt: now
     };

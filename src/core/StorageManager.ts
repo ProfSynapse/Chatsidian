@@ -223,20 +223,34 @@ export class StorageManager {
    */
   private async loadPluginData(): Promise<ChatsidianData> {
     try {
+      console.log('StorageManager.loadPluginData: Loading data from plugin storage');
+      
       // Use Obsidian plugin's loadData method to get the current data
       const rawData = await this.plugin.loadData();
+      console.log('StorageManager.loadPluginData: Raw data loaded from plugin:', 
+                 rawData ? 'Data loaded successfully' : 'No data found, using empty object');
       
       // Create a properly typed data object
       const data = this.createCompleteData(rawData || {});
+      console.log('StorageManager.loadPluginData: Processed data:', {
+        folders: data.folders ? `${data.folders.length} folders` : 'no folders',
+        conversationIndex: data.conversationIndex ? `${Object.keys(data.conversationIndex).length} conversations in index` : 'no conversation index',
+        lastUpdated: data.lastUpdated ? new Date(data.lastUpdated).toISOString() : 'no last updated timestamp'
+      });
+      
+      if (data.folders && data.folders.length > 0) {
+        console.log('StorageManager.loadPluginData: Folders found:', data.folders.map(f => ({id: f.id, name: f.name})));
+      }
       
       // Store in memory cache
       this.pluginData = data;
       
       return data;
     } catch (error) {
-      console.error("Failed to load plugin data:", error);
+      console.error("StorageManager.loadPluginData: Failed to load plugin data:", error);
       // Create default structure if load fails
       const defaultData = ConversationUtils.createDefaultPluginData();
+      console.log('StorageManager.loadPluginData: Created default plugin data');
       this.pluginData = defaultData;
       return defaultData;
     }
@@ -262,16 +276,28 @@ export class StorageManager {
    */
   private async savePluginData(data: Partial<ChatsidianData>): Promise<void> {
     try {
+      console.log('StorageManager.savePluginData: Saving plugin data');
+      
       // Ensure all required fields exist
       const completeData = this.createCompleteData(data);
+      console.log('StorageManager.savePluginData: Data to save:', {
+        folders: completeData.folders ? `${completeData.folders.length} folders` : 'no folders',
+        conversationIndex: completeData.conversationIndex ? `${Object.keys(completeData.conversationIndex).length} conversations in index` : 'no conversation index',
+        lastUpdated: completeData.lastUpdated ? new Date(completeData.lastUpdated).toISOString() : 'no last updated timestamp'
+      });
+      
+      if (completeData.folders && completeData.folders.length > 0) {
+        console.log('StorageManager.savePluginData: Saving folders:', completeData.folders.map(f => ({id: f.id, name: f.name})));
+      }
       
       // Use Obsidian plugin's saveData method to store the data
       await this.plugin.saveData(completeData);
+      console.log('StorageManager.savePluginData: Data saved successfully to plugin storage');
       
       // Update in-memory cache
       this.pluginData = completeData;
     } catch (error) {
-      console.error("Failed to save plugin data:", error);
+      console.error("StorageManager.savePluginData: Failed to save plugin data:", error);
       throw new StorageError("Failed to save plugin data: " + error.message);
     }
   }
@@ -1058,14 +1084,20 @@ export class StorageManager {
    * @returns Promise that resolves with an array of folders
    */
   public async getFolders(): Promise<ConversationFolder[]> {
+    console.log('StorageManager.getFolders: Getting folders');
+    
     // Get data from memory cache or load if not available
     if (!this.pluginData) {
+      console.log('StorageManager.getFolders: Plugin data not in memory, loading from disk');
       this.pluginData = await this.loadPluginData();
     }
     
     if (!this.pluginData || !this.pluginData.folders) {
+      console.log('StorageManager.getFolders: No folders found in plugin data');
       return [];
     }
+    
+    console.log('StorageManager.getFolders: Returning folders:', this.pluginData.folders.map(f => ({id: f.id, name: f.name})));
     
     // Return a copy of the folders array to prevent direct modification
     return [...this.pluginData.folders];
@@ -1161,10 +1193,14 @@ export class StorageManager {
         this.pluginData = ConversationUtils.createDefaultPluginData();
       }
       
-      // Create new folder
+      // Create new folder - make sure we pass null explicitly if parentId is undefined
+      const parentId = folderData?.parentId === undefined ? null : folderData.parentId;
+      console.log(`StorageManager.createFolder: Creating folder with explicit parentId:`, 
+                  parentId === null ? "null" : `"${parentId}"`);
+                  
       const folder = ConversationUtils.createFolder(
         folderData?.name || 'New Folder',
-        folderData?.parentId || undefined
+        parentId
       );
       
       // Add any additional properties
@@ -1189,6 +1225,7 @@ export class StorageManager {
       await this.savePluginData(updatedData);
       
       // Emit event
+      console.log('StorageManager: Folder created successfully', folder);
       this.eventBus.emit('folder:created', folder);
       
       return folder;
